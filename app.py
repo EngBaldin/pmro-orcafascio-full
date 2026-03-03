@@ -300,8 +300,37 @@ elif page == "📑 Contratos":
                         json_str = re.sub(r"```json|```", "", json_str).strip()
                         dados = json.loads(json_str)
 
-                        st.success("Dados extraidos pela IA!")
-                        st.json(dados)
+# ── REGEX FALLBACK: busca valor direto no texto do PDF ──
+def extrair_valores_pdf(texto):
+    # Captura padrão: R$ 1.377.361,80 ou R$1.377.361,80
+    padrao = r"R\$\s*([\d]{1,3}(?:\.[\d]{3})*,\d{2})"
+    valores = re.findall(padrao, texto)
+    resultado = []
+    for v in valores:
+        try:
+            resultado.append(float(v.replace(".", "").replace(",", ".")))
+        except:
+            pass
+    return resultado
+
+valores_encontrados = extrair_valores_pdf(texto_pdf)
+
+# Se a IA retornou valor errado (0 ou muito pequeno), usa o maior valor do PDF
+val_ia = parse_valor(dados.get("valor_total", 0))
+if val_ia < 100 and valores_encontrados:
+    dados["valor_total"] = max(valores_encontrados)
+
+val_rem_ia = parse_valor(dados.get("valor_remanescente", 0))
+if val_rem_ia < 100 and valores_encontrados:
+    dados["valor_remanescente"] = max(valores_encontrados)
+
+# Mostra os valores encontrados no PDF para conferencia
+if valores_encontrados:
+    st.info("💰 Valores encontrados no PDF: " + 
+            " | ".join(["R$ {:,.2f}".format(v) for v in sorted(set(valores_encontrados), reverse=True)[:5]]))
+
+st.success("Dados extraidos pela IA!")
+st.json(dados)
 
                         data_est_raw = dados.get("data_estimado", "")
                         mes_ano = None
