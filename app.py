@@ -33,15 +33,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────
-# FUNCAO AUXILIAR — fora de qualquer bloco
+# FUNCOES AUXILIARES
 # ─────────────────────────────────────────
 def parse_valor(v):
     try:
         s = str(v).replace("R$", "").strip()
-        # Se ja e float puro (ex: 1377361.8), converte direto
         if re.match(r"^\d+\.\d+$", s) or re.match(r"^\d+$", s):
             return float(s)
-        # Formato brasileiro: 1.377.361,80
         if "," in s:
             s = s.replace(".", "").replace(",", ".")
         return float(s)
@@ -58,6 +56,24 @@ def extrair_valores_pdf(texto):
         except:
             pass
     return resultado
+
+def ler_arquivo_texto(arquivo):
+    """Le texto de PDF ou Excel e retorna string"""
+    nome = arquivo.name.lower()
+    texto = ""
+    if nome.endswith(".pdf"):
+        with pdfplumber.open(arquivo) as pdf:
+            for pg in pdf.pages:
+                t = pg.extract_text()
+                if t:
+                    texto += t + "\n"
+    elif nome.endswith(".xlsx") or nome.endswith(".xls"):
+        xls = pd.ExcelFile(arquivo)
+        for aba in xls.sheet_names:
+            df = pd.read_excel(xls, sheet_name=aba, header=None)
+            texto += "ABA: " + str(aba) + "\n"
+            texto += df.to_string() + "\n\n"
+    return texto
 
 # ─────────────────────────────────────────
 # BANCO DE DADOS
@@ -79,6 +95,18 @@ def init_db():
         nome TEXT, descricao TEXT, status TEXT DEFAULT "Em Elaboracao",
         bdi REAL, valor_total REAL, itens TEXT,
         data_criacao TEXT DEFAULT CURRENT_DATE
+    )''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS planilhas_orcamentarias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contrato_id INTEGER,
+        arquivo_nome TEXT,
+        indice_referencia TEXT,
+        mes_ano_referencia TEXT,
+        desonerado TEXT,
+        valor_total REAL,
+        observacoes TEXT,
+        data_upload TEXT DEFAULT CURRENT_DATE,
+        FOREIGN KEY (contrato_id) REFERENCES contratos(id)
     )''')
     conn.commit()
     return conn
@@ -115,10 +143,8 @@ ESTADOS_SINAPI = {
 }
 
 @st.cache_data(ttl=86400)
-@st.cache_data(ttl=86400)
 def buscar_sinapi_ibge(ano, mes, estado, desonerado):
     mes_str = MESES_PT[mes]
-    # Tenta os dois padrões de URL que o IBGE usa
     urls = [
         "https://ftp.ibge.gov.br/Precos_Custos_e_Indices_da_Construcao_Civil/SINAPI/Fasciculo_Indicadores_IBGE/SINAPI_Indicadores_" + "{:02d}".format(mes) + "_" + str(ano) + ".pdf",
         "https://ftp.ibge.gov.br/Precos_Custos_e_Indices_da_Construcao_Civil/Fasciculo_Indicadores_IBGE/sinapi_" + str(ano) + "{:02d}".format(mes) + "caderno.pdf",
@@ -132,8 +158,7 @@ def buscar_sinapi_ibge(ano, mes, estado, desonerado):
                 resp = r
                 break
         if not resp:
-            return None, "PDF nao encontrado para " + mes_str + "/" + str(ano) + " (tentadas 3 URLs)"
-
+            return None, "PDF nao encontrado para " + mes_str + "/" + str(ano)
         with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
             for page in pdf.pages:
                 texto = page.extract_text()
@@ -198,6 +223,7 @@ st.sidebar.title("Menu Principal")
 page = st.sidebar.radio("", [
     "📊 Dashboard",
     "📑 Contratos",
+    "📋 Planilha Orcamentaria",
     "➕ Orcamento",
     "🔍 Pesquisa de Precos",
     "📈 Reajustes",
@@ -291,22 +317,22 @@ elif page == "📑 Contratos":
                     try:
                         client = get_groq()
                         prompt = (
-    "Voce e um assistente especialista em contratos publicos brasileiros. "
-    "Extraia os dados do contrato abaixo e retorne SOMENTE JSON valido, sem texto extra. "
-    "\n\nREGRAS IMPORTANTES:"
-    "\n- valor_total: pegue o numero que aparece apos 'R$' e ANTES do parentese com o extenso."
-    "\n  Exemplo: 'R$ 1.377.361,80 (Um milhao...)' → valor_total deve ser 1377361.80"
-    "\n  Converta: remova pontos de milhar, troque virgula por ponto decimal."
-    "\n- valor_remanescente: mesmo criterio. Se nao encontrar, use o mesmo valor_total."
-    "\n- data_estimado: mes/ano do orcamento de referencia ou data-base do contrato, formato MM/AAAA."
-    "\n- Todos os valores numericos devem ser float, NUNCA string."
-    "\n\nFORMATO OBRIGATORIO (retorne exatamente isso preenchido):\n"
-    "{\"numero\":\"\",\"objeto\":\"\",\"data_assinatura\":\"DD/MM/AAAA\","
-    "\"data_estimado\":\"MM/AAAA\",\"valor_total\":0.0,"
-    "\"valor_remanescente\":0.0,\"vigencia\":\"DD/MM/AAAA\","
-    "\"contratada\":\"\",\"cnpj\":\"\"}"
-    "\n\nCONTRATO:\n" + texto_pdf[:4000]
-)
+                            "Voce e um assistente especialista em contratos publicos brasileiros. "
+                            "Extraia os dados do contrato abaixo e retorne SOMENTE JSON valido, sem texto extra. "
+                            "\n\nREGRAS IMPORTANTES:"
+                            "\n- valor_total: pegue o numero que aparece apos 'R$' e ANTES do parentese com o extenso."
+                            "\n  Exemplo: 'R$ 1.377.361,80 (Um milhao...)' -> valor_total deve ser 1377361.80"
+                            "\n  Converta: remova pontos de milhar, troque virgula por ponto decimal."
+                            "\n- valor_remanescente: mesmo criterio. Se nao encontrar, use o mesmo valor_total."
+                            "\n- data_estimado: mes/ano do orcamento de referencia ou data-base do contrato, formato MM/AAAA."
+                            "\n- Todos os valores numericos devem ser float, NUNCA string."
+                            "\n\nFORMATO OBRIGATORIO:\n"
+                            "{\"numero\":\"\",\"objeto\":\"\",\"data_assinatura\":\"DD/MM/AAAA\","
+                            "\"data_estimado\":\"MM/AAAA\",\"valor_total\":0.0,"
+                            "\"valor_remanescente\":0.0,\"vigencia\":\"DD/MM/AAAA\","
+                            "\"contratada\":\"\",\"cnpj\":\"\"}"
+                            "\n\nCONTRATO:\n" + texto_pdf[:4000]
+                        )
 
                         resp = client.chat.completions.create(
                             model="llama-3.3-70b-versatile",
@@ -319,11 +345,9 @@ elif page == "📑 Contratos":
                         dados = json.loads(json_str)
 
                         valores_encontrados = extrair_valores_pdf(texto_pdf)
-
                         val_ia = parse_valor(dados.get("valor_total", 0))
                         if val_ia < 100 and valores_encontrados:
                             dados["valor_total"] = max(valores_encontrados)
-
                         val_rem_ia = parse_valor(dados.get("valor_remanescente", 0))
                         if val_rem_ia < 100 and valores_encontrados:
                             dados["valor_remanescente"] = max(valores_encontrados)
@@ -451,7 +475,149 @@ elif page == "📑 Contratos":
                 st.rerun()
 
 # ─────────────────────────────────────────
-# 3. ORCAMENTO
+# 3. PLANILHA ORCAMENTARIA
+# ─────────────────────────────────────────
+elif page == "📋 Planilha Orcamentaria":
+    st.header("Planilha Orcamentaria")
+
+    tab1, tab2 = st.tabs(["Upload e Cadastro", "Planilhas Cadastradas"])
+
+    with tab1:
+        st.subheader("Upload da Planilha Ganha na Licitacao")
+        st.caption("Aceita Excel (.xlsx) ou PDF. A IA ira identificar o indice e mes de referencia.")
+
+        df_c = pd.read_sql("SELECT id, numero, objeto FROM contratos", conn)
+        if df_c.empty:
+            st.warning("Cadastre um contrato primeiro antes de vincular uma planilha.")
+        else:
+            contrato_sel = st.selectbox(
+                "Vincular ao Contrato",
+                df_c['id'],
+                format_func=lambda x: df_c[df_c['id']==x]['numero'].values[0] + " — " + df_c[df_c['id']==x]['objeto'].values[0][:50]
+            )
+
+            arquivo = st.file_uploader("Selecione a Planilha (Excel ou PDF)", type=["xlsx","xls","pdf"])
+
+            if arquivo:
+                with st.spinner("Lendo arquivo..."):
+                    texto_arquivo = ler_arquivo_texto(arquivo)
+
+                if texto_arquivo:
+                    st.success("Arquivo lido! " + str(len(texto_arquivo)) + " caracteres extraidos.")
+
+                    with st.spinner("IA identificando indice e referencia..."):
+                        try:
+                            client = get_groq()
+                            prompt = (
+                                "Voce e um engenheiro civil especialista em orcamentos publicos brasileiros. "
+                                "Analise a planilha orcamentaria abaixo e extraia SOMENTE o JSON sem explicacoes: "
+                                "{\"indice_referencia\":\"\","
+                                "\"mes_ano_referencia\":\"MM/AAAA\","
+                                "\"desonerado\":\"Sim ou Nao\","
+                                "\"valor_total\":0.0,"
+                                "\"observacoes\":\"\"}"
+                                "\n\nREGRAS:"
+                                "\n- indice_referencia: qual tabela de precos foi usada (SINAPI, SICRO, ORSE, etc.)"
+                                "\n- mes_ano_referencia: mes e ano da tabela de referencia usada no orcamento"
+                                "\n- desonerado: se a planilha usa custos desonerados ou nao"
+                                "\n- valor_total: valor total da planilha orcamentaria com BDI, float"
+                                "\n- observacoes: qualquer informacao relevante sobre o indice ou referencia"
+                                "\n\nPLANILHA:\n" + texto_arquivo[:4000]
+                            )
+
+                            resp = client.chat.completions.create(
+                                model="llama-3.3-70b-versatile",
+                                messages=[{"role": "user", "content": prompt}],
+                                temperature=0.1
+                            )
+
+                            json_str = resp.choices[0].message.content.strip()
+                            json_str = re.sub(r"```json|```", "", json_str).strip()
+                            dados_planilha = json.loads(json_str)
+
+                            st.success("IA identificou os dados!")
+                            st.json(dados_planilha)
+
+                        except Exception as e:
+                            st.error("Erro IA: " + str(e))
+                            dados_planilha = {
+                                "indice_referencia": "",
+                                "mes_ano_referencia": "",
+                                "desonerado": "Nao",
+                                "valor_total": 0.0,
+                                "observacoes": ""
+                            }
+
+                    st.markdown("---")
+                    st.subheader("Confirme e salve:")
+
+                    with st.form("salvar_planilha"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            indice_ref = st.selectbox(
+                                "Indice de Referencia",
+                                ["SINAPI", "SICRO", "ORSE", "SEINFRA-CE", "Outro"],
+                                index=["SINAPI","SICRO","ORSE","SEINFRA-CE","Outro"].index(
+                                    dados_planilha.get("indice_referencia","SINAPI")
+                                ) if dados_planilha.get("indice_referencia","") in ["SINAPI","SICRO","ORSE","SEINFRA-CE","Outro"] else 0
+                            )
+                            mes_ano_ref = st.text_input(
+                                "Mes/Ano Referencia (MM/AAAA)",
+                                value=dados_planilha.get("mes_ano_referencia", "")
+                            )
+                        with col2:
+                            desonerado_p = st.selectbox(
+                                "Desonerado?",
+                                ["Nao", "Sim"],
+                                index=0 if dados_planilha.get("desonerado","Nao") == "Nao" else 1
+                            )
+                            valor_total_p = st.number_input(
+                                "Valor Total R$",
+                                value=parse_valor(dados_planilha.get("valor_total", 0)),
+                                format="%.2f"
+                            )
+
+                        observacoes_p = st.text_area(
+                            "Observacoes",
+                            value=dados_planilha.get("observacoes", ""),
+                            height=80
+                        )
+
+                        if st.form_submit_button("Salvar Planilha"):
+                            conn.execute(
+                                "INSERT INTO planilhas_orcamentarias (contrato_id, arquivo_nome, indice_referencia, mes_ano_referencia, desonerado, valor_total, observacoes) VALUES (?,?,?,?,?,?,?)",
+                                (contrato_sel, arquivo.name, indice_ref, mes_ano_ref, desonerado_p, valor_total_p, observacoes_p)
+                            )
+                            conn.commit()
+                            st.success("Planilha vinculada ao contrato com sucesso!")
+                            st.balloons()
+                else:
+                    st.error("Nao foi possivel extrair texto do arquivo.")
+
+    with tab2:
+        st.subheader("Planilhas Cadastradas")
+        df_p = pd.read_sql("""
+            SELECT p.id, c.numero as contrato, p.arquivo_nome,
+                   p.indice_referencia, p.mes_ano_referencia,
+                   p.desonerado, p.valor_total, p.observacoes, p.data_upload
+            FROM planilhas_orcamentarias p
+            LEFT JOIN contratos c ON p.contrato_id = c.id
+        """, conn)
+
+        if df_p.empty:
+            st.info("Nenhuma planilha cadastrada ainda.")
+        else:
+            st.dataframe(df_p, use_container_width=True)
+
+            st.markdown("---")
+            del_p = st.number_input("ID para excluir", min_value=0, step=1, key="del_plan")
+            if st.button("Excluir Planilha") and del_p > 0:
+                conn.execute("DELETE FROM planilhas_orcamentarias WHERE id=?", (del_p,))
+                conn.commit()
+                st.rerun()
+
+# ─────────────────────────────────────────
+# 4. ORCAMENTO
 # ─────────────────────────────────────────
 elif page == "➕ Orcamento":
     st.header("Orcamentos")
@@ -612,7 +778,7 @@ elif page == "➕ Orcamento":
                 st.rerun()
 
 # ─────────────────────────────────────────
-# 4. PESQUISA DE PRECOS
+# 5. PESQUISA DE PRECOS
 # ─────────────────────────────────────────
 elif page == "🔍 Pesquisa de Precos":
     st.header("Pesquisa de Precos")
@@ -667,7 +833,7 @@ elif page == "🔍 Pesquisa de Precos":
                 st.warning(msg)
 
 # ─────────────────────────────────────────
-# 5. REAJUSTES
+# 6. REAJUSTES
 # ─────────────────────────────────────────
 elif page == "📈 Reajustes":
     st.header("Calculo de Reajustes - Lei 14.133")
@@ -680,27 +846,44 @@ elif page == "📈 Reajustes":
                            format_func=lambda x: df_c[df_c['id']==x]['numero'].values[0])
         row = df_c[df_c['id']==sel].iloc[0]
 
+        # Busca planilha vinculada
+        df_plan = pd.read_sql(
+            "SELECT * FROM planilhas_orcamentarias WHERE contrato_id=?",
+            conn, params=(sel,)
+        )
+
         col1, col2, col3 = st.columns(3)
         col1.metric("Contrato", str(row['numero']))
         col1.metric("Indice Io", "{:.4f}".format(row['reajuste_base']))
         col2.metric("Data-Base", str(row['dt_base'])[:10])
         col2.metric("Valor Total", "R$ " + "{:,.2f}".format(row['valor_total']))
 
+        if not df_plan.empty:
+            col3.info("📋 Planilha: " + str(df_plan.iloc[0]['arquivo_nome']))
+            col3.info("Indice: " + str(df_plan.iloc[0]['indice_referencia']) + " | " + str(df_plan.iloc[0]['mes_ano_referencia']))
+        else:
+            col3.warning("Sem planilha orcamentaria vinculada.")
+
         hoje = date.today()
         try:
             dt_est = datetime.strptime(str(row['data_estimado'])[:10], "%Y-%m-%d").date()
             dias   = (hoje - dt_est).days
             if dias < 365:
-                col3.warning("Periodo minimo nao atingido! " + str(365 - dias) + " dias restantes.")
+                st.warning("Periodo minimo nao atingido! " + str(365 - dias) + " dias restantes.")
             else:
-                col3.success("Elegivel para reajuste!")
+                st.success("Elegivel para reajuste!")
         except:
             pass
 
         st.markdown("---")
         col1, col2 = st.columns(2)
         with col1:
-            indice_tipo = st.selectbox("Indice", ["SINAPI-RO", "SICRO-DNIT", "INCC", "IPCA", "IGP-M"])
+            indices_disponiveis = ["SINAPI-RO", "SICRO-DNIT", "INCC", "IPCA", "IGP-M"]
+            if not df_plan.empty:
+                idx_planilha = str(df_plan.iloc[0]['indice_referencia'])
+                if idx_planilha not in indices_disponiveis:
+                    indices_disponiveis.insert(0, idx_planilha)
+            indice_tipo = st.selectbox("Indice", indices_disponiveis)
             Ii = st.number_input("Indice Ii (mes reajuste)", value=float(row['reajuste_base']) * 1.05, format="%.4f")
         with col2:
             V = st.number_input("Valor V (Remanescente R$)", value=float(row['valor_remanescente']), format="%.2f")
@@ -734,12 +917,12 @@ elif page == "📈 Reajustes":
                 st.success("Reajuste salvo!")
 
 # ─────────────────────────────────────────
-# 6. RELATORIOS
+# 7. RELATORIOS
 # ─────────────────────────────────────────
 elif page == "📄 Relatorios":
     st.header("Relatorios e Exportacoes")
 
-    tab1, tab2 = st.tabs(["Contratos", "Orcamentos"])
+    tab1, tab2, tab3 = st.tabs(["Contratos", "Orcamentos", "Planilhas"])
 
     with tab1:
         df_c = pd.read_sql("SELECT * FROM contratos", conn)
@@ -763,6 +946,24 @@ elif page == "📄 Relatorios":
             with pd.ExcelWriter(output2, engine='openpyxl') as writer:
                 df_o.to_excel(writer, sheet_name='Orcamentos', index=False)
             st.download_button("Exportar Orcamentos Excel", output2.getvalue(), "orcamentos_pmro.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    with tab3:
+        df_p = pd.read_sql("""
+            SELECT p.id, c.numero as contrato, p.arquivo_nome,
+                   p.indice_referencia, p.mes_ano_referencia,
+                   p.desonerado, p.valor_total, p.data_upload
+            FROM planilhas_orcamentarias p
+            LEFT JOIN contratos c ON p.contrato_id = c.id
+        """, conn)
+        if df_p.empty:
+            st.info("Nenhuma planilha cadastrada.")
+        else:
+            st.dataframe(df_p, use_container_width=True)
+            output3 = io.BytesIO()
+            with pd.ExcelWriter(output3, engine='openpyxl') as writer:
+                df_p.to_excel(writer, sheet_name='Planilhas', index=False)
+            st.download_button("Exportar Planilhas Excel", output3.getvalue(), "planilhas_pmro.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 # ─────────────────────────────────────────
