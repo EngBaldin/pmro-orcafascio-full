@@ -555,11 +555,30 @@ elif pagina == "⚙️ Bases de Dados":
         st.info("📌 Use o template Excel disponível abaixo. Funciona com SINAPI, SICRO, ORSE e base própria PMRO.")
 
         # Download template
-        with open("TEMPLATE_PMRO_Enterprise_Tabela_Referencia.xlsx", "rb") as f:
-            st.download_button("⬇️ Baixar Template Excel PMRO", f.read(),
-                "TEMPLATE_PMRO_Enterprise_Tabela_Referencia.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary")
+        import io
+from openpyxl import Workbook
+tmpl = Workbook()
+ws = tmpl.active
+ws.title = "INSUMOS"
+ws.append(["CÓDIGO","DESCRIÇÃO","UNIDADE","PREÇO_UNITARIO","TABELA_REFERENCIA","MÊS_ANO","ESTADO"])
+ws.append(["SINAPI-001","Cimento Portland CP-II","kg",0.85,"SINAPI","03/2026","RO"])
+ws.append(["SINAPI-002","Areia média lavada","m³",120.00,"SINAPI","03/2026","RO"])
+ws.append(["SINAPI-003","Tubo PEAD DN200mm","m",156.20,"SINAPI","03/2026","RO"])
+ws.append(["MOB-001","Pedreiro","h",25.80,"SINAPI","03/2026","RO"])
+ws.append(["EQP-001","Retroescavadeira","h",185.00,"SINAPI","03/2026","RO"])
+ws2 = tmpl.create_sheet("COMPOSIÇÕES")
+ws2.append(["CÓDIGO_COMP","DESCRIÇÃO_COMPOSIÇÃO","UNIDADE","CÓDIGO_INSUMO","DESCRIÇÃO_INSUMO","COEF","TIPO"])
+ws2.append(["COMP-001","Pavimentação CBUQ 4cm","m²","SINAPI-003","Tubo PEAD",1.0,"MATERIAL"])
+buf = io.BytesIO()
+tmpl.save(buf)
+st.download_button(
+    "⬇️ Baixar Template Excel PMRO",
+    buf.getvalue(),
+    "TEMPLATE_PMRO.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    type="primary"
+)
+
 
         st.markdown("---")
         upload_excel = st.file_uploader("📊 Upload Tabela Preenchida (.xlsx)", type=["xlsx"])
