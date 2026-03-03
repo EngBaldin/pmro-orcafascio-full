@@ -41,6 +41,17 @@ def parse_valor(v):
     except:
         return 0.0
 
+def extrair_valores_pdf(texto):
+    padrao = r"R\$\s*([\d]{1,3}(?:\.[\d]{3})*,\d{2})"
+    valores = re.findall(padrao, texto)
+    resultado = []
+    for v in valores:
+        try:
+            resultado.append(float(v.replace(".", "").replace(",", ".")))
+        except:
+            pass
+    return resultado
+
 # ─────────────────────────────────────────
 # BANCO DE DADOS
 # ─────────────────────────────────────────
