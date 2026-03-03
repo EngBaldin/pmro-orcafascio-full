@@ -630,7 +630,7 @@ elif page == "📋 Planilha Orcamentaria":
                                 except Exception as e:
                                     st.error("Erro ao atualizar contrato: " + str(e))
                             else:
-                                st.warning("Mes/ano nao identificado. Atualize o contrato manualmente."
+                                st.warning("Mes/ano nao identificado. Atualize o contrato manualmente.")
                     st.error("Nao foi possivel extrair texto do arquivo.")
 
     with tab2:
