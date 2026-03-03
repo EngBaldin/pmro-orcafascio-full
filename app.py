@@ -273,13 +273,16 @@ elif page == "📑 Contratos":
                     try:
                         client = get_groq()
                         prompt = (
-    "Voce e um assistente que extrai dados de contratos publicos brasileiros. "
-    "Leia o contrato abaixo e retorne SOMENTE um JSON valido, sem texto adicional, sem markdown, sem explicacao. "
-    "Os campos valor_total e valor_remanescente DEVEM ser numeros float, nunca strings. "
-    "Remova pontos de milhar e substitua virgula por ponto decimal. "
-    "Exemplo correto: {\"valor_total\": 1250000.00} "
-    "Exemplo ERRADO: {\"valor_total\": \"R$ 1.250.000,00\"} "
-    "\n\nFormato exigido:\n"
+    "Voce e um assistente especialista em contratos publicos brasileiros. "
+    "Extraia os dados do contrato abaixo e retorne SOMENTE JSON valido, sem texto extra. "
+    "\n\nREGRAS IMPORTANTES:"
+    "\n- valor_total: pegue o numero que aparece apos 'R$' e ANTES do parentese com o extenso."
+    "\n  Exemplo: 'R$ 1.377.361,80 (Um milhao...)' → valor_total deve ser 1377361.80"
+    "\n  Converta: remova pontos de milhar, troque virgula por ponto decimal."
+    "\n- valor_remanescente: mesmo criterio. Se nao encontrar, use o mesmo valor_total."
+    "\n- data_estimado: mes/ano do orcamento de referencia ou data-base do contrato, formato MM/AAAA."
+    "\n- Todos os valores numericos devem ser float, NUNCA string."
+    "\n\nFORMATO OBRIGATORIO (retorne exatamente isso preenchido):\n"
     "{\"numero\":\"\",\"objeto\":\"\",\"data_assinatura\":\"DD/MM/AAAA\","
     "\"data_estimado\":\"MM/AAAA\",\"valor_total\":0.0,"
     "\"valor_remanescente\":0.0,\"vigencia\":\"DD/MM/AAAA\","
