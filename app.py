@@ -580,7 +580,7 @@ st.download_button(
 )
 
 
-        st.markdown("---")
+st.markdown("---")
         upload_excel = st.file_uploader("📊 Upload Tabela Preenchida (.xlsx)", type=["xlsx"])
         if upload_excel:
             ok, msg = importar_excel(upload_excel)
