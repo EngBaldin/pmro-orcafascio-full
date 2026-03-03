@@ -1,5 +1,7 @@
 streamlit
 pandas
 plotly
+requests
 pdfplumber
 openpyxl
+groq
