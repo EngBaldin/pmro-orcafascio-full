@@ -589,9 +589,48 @@ elif page == "📋 Planilha Orcamentaria":
                                 (contrato_sel, arquivo.name, indice_ref, mes_ano_ref, desonerado_p, valor_total_p, observacoes_p)
                             )
                             conn.commit()
-                            st.success("Planilha vinculada ao contrato com sucesso!")
-                            st.balloons()
-                else:
+                            st.success("Planilha vinculada ao contrato!")
+
+                            if mes_ano_ref:
+                                try:
+                                    partes   = mes_ano_ref.split("/")
+                                    mes_r    = int(partes[0])
+                                    ano_r    = int(partes[1])
+                                    des_bool = True if desonerado_p == "Sim" else False
+
+                                    with st.spinner("Buscando indice " + indice_ref + " " + mes_ano_ref + "..."):
+                                        if indice_ref == "SINAPI":
+                                            idx_valor, msg_idx = buscar_sinapi_ibge(ano_r, mes_r, "RO", des_bool)
+                                        elif indice_ref == "INCC":
+                                            idx_valor, _ = get_bcb(433)
+                                            msg_idx = "OK"
+                                        elif indice_ref == "IPCA":
+                                            idx_valor, _ = get_bcb(438)
+                                            msg_idx = "OK"
+                                        elif indice_ref == "IGP-M":
+                                            idx_valor, _ = get_bcb(189)
+                                            msg_idx = "OK"
+                                        else:
+                                            idx_valor = None
+                                            msg_idx   = "Indice nao automatizado ainda"
+
+                                    if idx_valor:
+                                        dt_base_nova = partes[1] + "-" + partes[0] + "-01"
+                                        conn.execute(
+                                            "UPDATE contratos SET data_estimado=?, dt_base=?, reajuste_base=? WHERE id=?",
+                                            (dt_base_nova, dt_base_nova, idx_valor, contrato_sel)
+                                        )
+                                        conn.commit()
+                                        st.success("✅ Contrato atualizado! Indice Io = " + str(idx_valor) + " | Data-base: " + mes_ano_ref)
+                                        st.balloons()
+                                    else:
+                                        st.warning("Planilha salva, mas indice nao encontrado: " + msg_idx)
+                                        st.info("Va em Contratos e atualize o Indice Base Io manualmente.")
+
+                                except Exception as e:
+                                    st.error("Erro ao atualizar contrato: " + str(e))
+                            else:
+                                st.warning("Mes/ano nao identificado. Atualize o contrato manualmente."
                     st.error("Nao foi possivel extrair texto do arquivo.")
 
     with tab2:
