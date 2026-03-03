@@ -573,10 +573,10 @@ buf = io.BytesIO()
 tmpl.save(buf)
 st.download_button(
     "⬇️ Baixar Template Excel PMRO",
-    buf.getvalue(),
-    "TEMPLATE_PMRO.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    type="primary"
+buf.getvalue(),
+"TEMPLATE_PMRO.xlsx",
+mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+type="primary"
 )
 
 
