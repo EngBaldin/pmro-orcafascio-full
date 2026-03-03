@@ -6,6 +6,7 @@ import io
 import requests
 import pdfplumber
 import re
+import json
 from groq import Groq
 from datetime import datetime, date
 
@@ -49,8 +50,7 @@ def init_db():
     conn.execute('''CREATE TABLE IF NOT EXISTS orcamentos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nome TEXT, descricao TEXT, status TEXT DEFAULT "Em Elaboracao",
-        bdi REAL, valor_total REAL,
-        itens TEXT,
+        bdi REAL, valor_total REAL, itens TEXT,
         data_criacao TEXT DEFAULT CURRENT_DATE
     )''')
     conn.commit()
@@ -62,7 +62,6 @@ conn = init_db()
 # GROQ CLIENT
 # ─────────────────────────────────────────
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
-
 
 @st.cache_resource
 def get_groq():
@@ -91,7 +90,11 @@ ESTADOS_SINAPI = {
 @st.cache_data(ttl=86400)
 def buscar_sinapi_ibge(ano, mes, estado, desonerado):
     mes_str = MESES_PT[mes]
-    url = "https://ftp.ibge.gov.br/Precos_Custos_e_Indices_da_Construcao_Civil/Fasciculo_Indicadores_IBGE/sinapi_" + str(ano) + "{:02d}".format(mes) + "caderno.pdf"
+    url = (
+        "https://ftp.ibge.gov.br/Precos_Custos_e_Indices_da_Construcao_Civil/"
+        "Fasciculo_Indicadores_IBGE/sinapi_"
+        + str(ano) + "{:02d}".format(mes) + "caderno.pdf"
+    )
     try:
         resp = requests.get(url, timeout=15)
         if resp.status_code != 200:
@@ -102,25 +105,19 @@ def buscar_sinapi_ibge(ano, mes, estado, desonerado):
                 texto = page.extract_text()
                 if not texto:
                     continue
-
-                # Verifica se e a tabela certa (desonerado ou nao)
                 if desonerado and "nao considerando a desonerac" in texto.lower():
                     continue
                 if not desonerado and "considerando a desonerac" in texto.lower() and "nao considerando" not in texto.lower():
                     continue
-
-                # Busca nome do estado no texto
                 nome_estado = ESTADOS_SINAPI.get(estado, estado)
                 linhas = texto.split("\n")
                 for linha in linhas:
                     if nome_estado.lower() in linha.lower() or estado in linha:
-                        # Extrai numeros da linha
-                        nums = re.findall(r"[\d]+[.,][\d]+", linha)
+                        nums = re.findall(r"\d+[.,]\d+", linha)
                         if len(nums) >= 2:
                             indice_str = nums[1].replace(".", "").replace(",", ".")
                             try:
-                                indice = float(indice_str)
-                                return indice, "OK"
+                                return float(indice_str), "OK"
                             except:
                                 continue
         return None, "Estado nao encontrado no PDF"
@@ -173,7 +170,6 @@ page = st.sidebar.radio("", [
     "📄 Relatorios"
 ])
 
-
 if st.sidebar.button("Atualizar BCB"):
     st.cache_data.clear()
     st.rerun()
@@ -181,7 +177,7 @@ if st.sidebar.button("Atualizar BCB"):
 # ─────────────────────────────────────────
 # 1. DASHBOARD
 # ─────────────────────────────────────────
-if page == "Dashboard":
+if page == "📊 Dashboard":
     st.header("Dashboard Geral")
 
     incc, dt_incc = get_bcb(433)
@@ -234,12 +230,11 @@ if page == "Dashboard":
 # ─────────────────────────────────────────
 # 2. CONTRATOS
 # ─────────────────────────────────────────
-elif page == "Contratos":
+elif page == "📑 Contratos":
     st.header("Gestao de Contratos")
 
     tab1, tab2, tab3 = st.tabs(["Upload PDF (IA)", "Cadastro Manual", "Contratos Cadastrados"])
 
-    # TAB 1 — UPLOAD PDF COM IA
     with tab1:
         st.subheader("Envie o PDF do Contrato")
         st.caption("A IA ira extrair automaticamente: numero, objeto, datas, valores e indices.")
@@ -262,19 +257,12 @@ elif page == "Contratos":
                     try:
                         client = get_groq()
                         prompt = (
-                            "Analise o contrato abaixo e extraia APENAS os dados no formato JSON:\n"
-                            "{\n"
-                            '  "numero": "numero do contrato",\n'
-                            '  "objeto": "descricao do objeto",\n'
-                            '  "data_assinatura": "DD/MM/AAAA",\n'
-                            '  "data_estimado": "MM/AAAA (data do orcamento estimado/data-base)",\n'
-                            '  "valor_total": 000000.00,\n'
-                            '  "valor_remanescente": 000000.00,\n'
-                            '  "vigencia": "DD/MM/AAAA",\n'
-                            '  "contratada": "nome da empresa",\n'
-                            '  "cnpj": "00.000.000/0000-00"\n'
-                            "}\n\n"
-                            "Retorne SOMENTE o JSON, sem explicacoes.\n\n"
+                            "Analise o contrato abaixo e extraia APENAS os dados no formato JSON. "
+                            "Retorne SOMENTE o JSON sem explicacoes:\n"
+                            '{"numero":"","objeto":"","data_assinatura":"DD/MM/AAAA",'
+                            '"data_estimado":"MM/AAAA","valor_total":0.0,'
+                            '"valor_remanescente":0.0,"vigencia":"DD/MM/AAAA",'
+                            '"contratada":"","cnpj":""}\n\n'
                             "CONTRATO:\n" + texto_pdf[:4000]
                         )
 
@@ -286,12 +274,11 @@ elif page == "Contratos":
 
                         json_str = resp.choices[0].message.content.strip()
                         json_str = re.sub(r"```json|```", "", json_str).strip()
-                        dados = __import__('json').loads(json_str)
+                        dados = json.loads(json_str)
 
                         st.success("Dados extraidos pela IA!")
                         st.json(dados)
 
-                        # Parse data_estimado para buscar SINAPI
                         data_est_raw = dados.get("data_estimado", "")
                         mes_ano = None
                         try:
@@ -301,12 +288,11 @@ elif page == "Contratos":
                         except:
                             pass
 
-                        # Busca indice SINAPI automatico
                         indice_auto = None
                         if mes_ano:
                             col_a, col_b = st.columns(2)
-                            estado_sel   = col_a.selectbox("Estado para SINAPI", list(ESTADOS_SINAPI.keys()), index=0)
-                            desonerado   = col_b.checkbox("Desonerado?", value=False)
+                            estado_sel = col_a.selectbox("Estado para SINAPI", list(ESTADOS_SINAPI.keys()), index=0)
+                            desonerado = col_b.checkbox("Desonerado?", value=False)
 
                             with st.spinner("Buscando indice SINAPI IBGE..."):
                                 indice_auto, msg = buscar_sinapi_ibge(mes_ano[1], mes_ano[0], estado_sel, desonerado)
@@ -314,30 +300,28 @@ elif page == "Contratos":
                             if indice_auto:
                                 st.success("Indice SINAPI " + estado_sel + " " + data_est_raw + ": " + str(indice_auto))
                             else:
-                                st.warning("Nao foi possivel obter indice automatico: " + msg)
+                                st.warning("Nao foi possivel obter indice: " + msg)
 
                         st.markdown("---")
-                        st.subheader("Confirme e salve o contrato:")
+                        st.subheader("Confirme e salve:")
 
                         with st.form("salvar_ia"):
                             col1, col2 = st.columns(2)
                             with col1:
-                                numero  = col1.text_input("Numero", value=dados.get("numero",""))
-                                objeto  = col1.text_area("Objeto", value=dados.get("objeto",""), height=80)
-                                data_est_str = col1.text_input("Data Orcamento (MM/AAAA)", value=dados.get("data_estimado",""))
+                                numero       = st.text_input("Numero", value=dados.get("numero", ""))
+                                objeto       = st.text_area("Objeto", value=dados.get("objeto", ""), height=80)
+                                data_est_str = st.text_input("Data Orcamento (MM/AAAA)", value=dados.get("data_estimado", ""))
                             with col2:
-                                val_total = col2.number_input("Valor Total R$", value=float(dados.get("valor_total",0)), format="%.2f")
-                                val_rem   = col2.number_input("Valor Remanescente R$", value=float(dados.get("valor_remanescente",0)), format="%.2f")
-                                ind_base  = col2.number_input("Indice Base Io (SINAPI)", value=float(indice_auto) if indice_auto else 100.0, format="%.2f")
+                                val_total = st.number_input("Valor Total R$", value=float(str(dados.get("valor_total", 0)).replace(",", ".")), format="%.2f")
+                                val_rem   = st.number_input("Valor Remanescente R$", value=float(str(dados.get("valor_remanescente", 0)).replace(",", ".")), format="%.2f")
+                                ind_base  = st.number_input("Indice Base Io", value=float(indice_auto) if indice_auto else 100.0, format="%.2f")
 
                             if st.form_submit_button("Salvar Contrato"):
-                                # Converte MM/AAAA para AAAA-MM-01
                                 try:
                                     partes = data_est_str.split("/")
                                     dt_salvar = partes[1] + "-" + partes[0] + "-01"
                                 except:
                                     dt_salvar = str(date.today())
-
                                 conn.execute(
                                     "INSERT INTO contratos (numero, objeto, data_estimado, reajuste_base, dt_base, valor_total, valor_remanescente) VALUES (?,?,?,?,?,?,?)",
                                     (numero, objeto, dt_salvar, ind_base, dt_salvar, val_total, val_rem)
@@ -351,15 +335,14 @@ elif page == "Contratos":
             else:
                 st.error("Nao foi possivel extrair texto do PDF.")
 
-    # TAB 2 — CADASTRO MANUAL
     with tab2:
         with st.form("form_manual"):
             col1, col2 = st.columns(2)
             with col1:
-                numero   = st.text_input("Numero do Contrato", placeholder="001/2026")
-                objeto   = st.text_area("Objeto", height=100)
+                numero          = st.text_input("Numero do Contrato", placeholder="001/2026")
+                objeto          = st.text_area("Objeto", height=100)
                 data_est_manual = st.text_input("Data Orcamento Estimado (MM/AAAA)", placeholder="01/2025")
-                desonerado_m = st.checkbox("Desonerado?", value=False, key="des_manual")
+                desonerado_m    = st.checkbox("Desonerado?", value=False, key="des_manual")
             with col2:
                 estado_m  = st.selectbox("Estado", list(ESTADOS_SINAPI.keys()), key="estado_manual")
                 val_total = st.number_input("Valor Total R$", value=1000000.0, format="%.2f")
@@ -376,11 +359,11 @@ elif page == "Contratos":
                     idx, msg = buscar_sinapi_ibge(int(partes[1]), int(partes[0]), estado_m, desonerado_m)
                     if idx:
                         st.success("Indice SINAPI encontrado: " + str(idx))
-                        st.info("Cole esse valor no campo Indice Base Io acima e clique Salvar.")
+                        st.info("Cole esse valor no campo Indice Base Io e clique Salvar.")
                     else:
                         st.warning(msg)
                 except:
-                    st.error("Formato de data invalido. Use MM/AAAA")
+                    st.error("Formato invalido. Use MM/AAAA")
 
             if salvar_btn:
                 if not numero or not objeto:
@@ -391,7 +374,6 @@ elif page == "Contratos":
                         dt_salvar = partes[1] + "-" + partes[0] + "-01"
                     except:
                         dt_salvar = str(date.today())
-
                     conn.execute(
                         "INSERT INTO contratos (numero, objeto, data_estimado, reajuste_base, dt_base, valor_total, valor_remanescente) VALUES (?,?,?,?,?,?,?)",
                         (numero, objeto, dt_salvar, ind_base, dt_salvar, val_total, val_rem)
@@ -400,7 +382,6 @@ elif page == "Contratos":
                     st.success("Contrato " + numero + " salvo!")
                     st.balloons()
 
-    # TAB 3 — LISTA
     with tab3:
         df_c = pd.read_sql("SELECT * FROM contratos", conn)
         if df_c.empty:
@@ -416,7 +397,7 @@ elif page == "Contratos":
 # ─────────────────────────────────────────
 # 3. ORCAMENTO
 # ─────────────────────────────────────────
-elif page == "Orcamento":
+elif page == "➕ Orcamento":
     st.header("Orcamentos")
 
     sub = st.radio("", ["Criar Orcamento", "Criar com IA", "Modelos Prontos", "Meus Orcamentos"], horizontal=True)
@@ -448,8 +429,8 @@ elif page == "Orcamento":
                     itens_orc.append(item)
 
         if st.button("Calcular e Salvar Orcamento") and itens_orc and nome_orc:
-            df_orc   = pd.DataFrame(itens_orc)
-            subtotal = df_orc['total'].sum()
+            df_orc    = pd.DataFrame(itens_orc)
+            subtotal  = df_orc['total'].sum()
             total_bdi = subtotal * (1 + bdi / 100)
 
             st.dataframe(df_orc[['codigo','nome','unidade','qtd','preco','total']], use_container_width=True)
@@ -458,7 +439,6 @@ elif page == "Orcamento":
             col2.metric("BDI", "R$ " + "{:,.2f}".format(subtotal * bdi / 100))
             col3.metric("TOTAL", "R$ " + "{:,.2f}".format(total_bdi))
 
-            import json
             conn.execute(
                 "INSERT INTO orcamentos (nome, status, bdi, valor_total, itens) VALUES (?,?,?,?,?)",
                 (nome_orc, status, bdi, total_bdi, json.dumps(itens_orc))
@@ -474,25 +454,24 @@ elif page == "Orcamento":
 
     elif sub == "Criar com IA":
         st.subheader("Orcamento com Inteligencia Artificial")
-        descricao_obra = st.text_area("Descreva a obra para o IA montar o orcamento:",
-                                      placeholder="Ex: Pavimentacao asfaltica em 500m de via urbana com drenagem e meio-fio em Ariquemes/RO",
+        descricao_obra = st.text_area("Descreva a obra:",
+                                      placeholder="Ex: Pavimentacao asfaltica 500m via urbana com drenagem e meio-fio",
                                       height=120)
         bdi_ia = st.number_input("BDI (%)", value=25.0, key="bdi_ia")
 
         if st.button("Gerar Orcamento com IA") and descricao_obra:
             with st.spinner("IA elaborando orcamento..."):
                 try:
-                    client = get_groq()
+                    client    = get_groq()
                     itens_str = str([{"codigo": i["codigo"], "nome": i["nome"],
                                       "unidade": i["unidade"], "preco": i["preco"]}
                                      for i in SINAPI_INSUMOS])
                     prompt = (
-                        "Voce e um engenheiro civil especialista em orcamentos publicos.\n"
-                        "Com base na descricao da obra abaixo, monte um orcamento usando APENAS os itens SINAPI disponíveis.\n"
-                        "Retorne SOMENTE um JSON no formato:\n"
-                        '[{"codigo":"xxx","nome":"yyy","unidade":"zzz","preco":0.0,"qtd":0.0,"total":0.0}]\n\n'
-                        "Itens SINAPI disponiveis: " + itens_str + "\n\n"
-                        "Obra: " + descricao_obra
+                        "Voce e um engenheiro civil especialista em orcamentos publicos. "
+                        "Monte um orcamento usando APENAS os itens SINAPI da lista. "
+                        "Retorne SOMENTE JSON no formato: "
+                        '[{"codigo":"","nome":"","unidade":"","preco":0.0,"qtd":0.0,"total":0.0}] '
+                        "Itens SINAPI: " + itens_str + " Obra: " + descricao_obra
                     )
 
                     resp = client.chat.completions.create(
@@ -501,13 +480,12 @@ elif page == "Orcamento":
                         temperature=0.2
                     )
 
-                    json_str = resp.choices[0].message.content.strip()
-                    json_str = re.sub(r"```json|```", "", json_str).strip()
-                    itens_ia = __import__('json').loads(json_str)
-
-                    df_ia    = pd.DataFrame(itens_ia)
-                    subtotal = df_ia['total'].sum()
-                    total_ia = subtotal * (1 + bdi_ia / 100)
+                    json_str  = resp.choices[0].message.content.strip()
+                    json_str  = re.sub(r"```json|```", "", json_str).strip()
+                    itens_ia  = json.loads(json_str)
+                    df_ia     = pd.DataFrame(itens_ia)
+                    subtotal  = df_ia['total'].sum()
+                    total_ia  = subtotal * (1 + bdi_ia / 100)
 
                     st.success("Orcamento gerado pela IA!")
                     st.dataframe(df_ia, use_container_width=True)
@@ -516,12 +494,11 @@ elif page == "Orcamento":
                     col1.metric("Subtotal", "R$ " + "{:,.2f}".format(subtotal))
                     col2.metric("Total c/ BDI", "R$ " + "{:,.2f}".format(total_ia))
 
-                    import json
                     if st.button("Salvar Orcamento IA"):
                         conn.execute(
                             "INSERT INTO orcamentos (nome, descricao, status, bdi, valor_total, itens) VALUES (?,?,?,?,?,?)",
-                            ("Orc IA - " + descricao_obra[:30], descricao_obra, "Em Elaboracao",
-                             bdi_ia, total_ia, json.dumps(itens_ia))
+                            ("Orc IA - " + descricao_obra[:30], descricao_obra,
+                             "Em Elaboracao", bdi_ia, total_ia, json.dumps(itens_ia))
                         )
                         conn.commit()
                         st.success("Salvo em Meus Orcamentos!")
@@ -545,11 +522,11 @@ elif page == "Orcamento":
             ],
         }
 
-        modelo_sel = st.selectbox("Selecionar Modelo", list(modelos.keys()))
-        df_modelo  = pd.DataFrame(modelos[modelo_sel])
+        modelo_sel   = st.selectbox("Selecionar Modelo", list(modelos.keys()))
+        df_modelo    = pd.DataFrame(modelos[modelo_sel])
         st.dataframe(df_modelo, use_container_width=True)
 
-        bdi_mod = st.number_input("BDI (%)", value=25.0, key="bdi_mod")
+        bdi_mod      = st.number_input("BDI (%)", value=25.0, key="bdi_mod")
         subtotal_mod = df_modelo['total'].sum()
         total_mod    = subtotal_mod * (1 + bdi_mod / 100)
 
@@ -558,7 +535,6 @@ elif page == "Orcamento":
         col2.metric("Total c/ BDI", "R$ " + "{:,.2f}".format(total_mod))
 
         if st.button("Usar este Modelo"):
-            import json
             conn.execute(
                 "INSERT INTO orcamentos (nome, status, bdi, valor_total, itens) VALUES (?,?,?,?,?)",
                 (modelo_sel, "Em Elaboracao", bdi_mod, total_mod, json.dumps(modelos[modelo_sel]))
@@ -582,15 +558,15 @@ elif page == "Orcamento":
 # ─────────────────────────────────────────
 # 4. PESQUISA DE PRECOS
 # ─────────────────────────────────────────
-elif page == "Pesquisa de Precos":
+elif page == "🔍 Pesquisa de Precos":
     st.header("Pesquisa de Precos")
 
     sub2 = st.radio("", ["Insumos e Composicoes", "Tabelas de Precos"], horizontal=True)
 
     if sub2 == "Insumos e Composicoes":
         st.subheader("Insumos e Composicoes SINAPI/SICRO RO")
-
         df_sinapi = pd.DataFrame(SINAPI_INSUMOS)
+
         col1, col2, col3 = st.columns(3)
         busca   = col1.text_input("Buscar")
         familia = col2.selectbox("Familia", ["Todos"] + sorted(df_sinapi['familia'].unique().tolist()))
@@ -617,15 +593,14 @@ elif page == "Pesquisa de Precos":
             "SINAPI-RO Local":     "Rondonia - Atualizado Mar/2026",
         }
         st.table(pd.DataFrame(list(tabelas.items()), columns=["Tabela", "Aplicacao"]))
-
-        st.info("Adicione suas tabelas personalizadas via upload (em breve).")
+        st.info("Upload de tabelas personalizadas em breve.")
 
         st.subheader("Indices SINAPI por Estado e Mes")
         col1, col2, col3, col4 = st.columns(4)
-        est_idx   = col1.selectbox("Estado", list(ESTADOS_SINAPI.keys()), key="est_pesq")
-        mes_idx   = col2.selectbox("Mes", list(range(1, 13)), key="mes_pesq")
-        ano_idx   = col3.number_input("Ano", value=2025, min_value=2020, max_value=2026, key="ano_pesq")
-        des_idx   = col4.checkbox("Desonerado", key="des_pesq")
+        est_idx = col1.selectbox("Estado", list(ESTADOS_SINAPI.keys()), key="est_pesq")
+        mes_idx = col2.selectbox("Mes", list(range(1, 13)), key="mes_pesq")
+        ano_idx = col3.number_input("Ano", value=2025, min_value=2020, max_value=2026, key="ano_pesq")
+        des_idx = col4.checkbox("Desonerado", key="des_pesq")
 
         if st.button("Buscar Indice SINAPI"):
             with st.spinner("Consultando IBGE FTP..."):
@@ -638,7 +613,7 @@ elif page == "Pesquisa de Precos":
 # ─────────────────────────────────────────
 # 5. REAJUSTES
 # ─────────────────────────────────────────
-elif page == "Reajustes":
+elif page == "📈 Reajustes":
     st.header("Calculo de Reajustes - Lei 14.133")
 
     df_c = pd.read_sql("SELECT * FROM contratos", conn)
@@ -658,7 +633,7 @@ elif page == "Reajustes":
         hoje = date.today()
         try:
             dt_est = datetime.strptime(str(row['data_estimado'])[:10], "%Y-%m-%d").date()
-            dias = (hoje - dt_est).days
+            dias   = (hoje - dt_est).days
             if dias < 365:
                 col3.warning("Periodo minimo nao atingido! " + str(365 - dias) + " dias restantes.")
             else:
@@ -705,7 +680,7 @@ elif page == "Reajustes":
 # ─────────────────────────────────────────
 # 6. RELATORIOS
 # ─────────────────────────────────────────
-elif page == "Relatorios":
+elif page == "📄 Relatorios":
     st.header("Relatorios e Exportacoes")
 
     tab1, tab2 = st.tabs(["Contratos", "Orcamentos"])
