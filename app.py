@@ -37,7 +37,14 @@ st.markdown("""
 # ─────────────────────────────────────────
 def parse_valor(v):
     try:
-        return float(str(v).replace("R$","").replace(".","").replace(",",".").strip())
+        s = str(v).replace("R$", "").strip()
+        # Se ja e float puro (ex: 1377361.8), converte direto
+        if re.match(r"^\d+\.\d+$", s) or re.match(r"^\d+$", s):
+            return float(s)
+        # Formato brasileiro: 1.377.361,80
+        if "," in s:
+            s = s.replace(".", "").replace(",", ".")
+        return float(s)
     except:
         return 0.0
 
