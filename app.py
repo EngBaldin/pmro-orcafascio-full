@@ -33,6 +33,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────
+# FUNCAO AUXILIAR — fora de qualquer bloco
+# ─────────────────────────────────────────
+def parse_valor(v):
+    try:
+        return float(str(v).replace("R$","").replace(".","").replace(",",".").strip())
+    except:
+        return 0.0
+
+# ─────────────────────────────────────────
 # BANCO DE DADOS
 # ─────────────────────────────────────────
 @st.cache_resource
@@ -99,7 +108,6 @@ def buscar_sinapi_ibge(ano, mes, estado, desonerado):
         resp = requests.get(url, timeout=15)
         if resp.status_code != 200:
             return None, "PDF nao encontrado para " + mes_str + "/" + str(ano)
-
         with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
             for page in pdf.pages:
                 texto = page.extract_text()
@@ -258,12 +266,12 @@ elif page == "📑 Contratos":
                         client = get_groq()
                         prompt = (
                             "Analise o contrato abaixo e extraia APENAS os dados no formato JSON. "
-                            "Retorne SOMENTE o JSON sem explicacoes:\n"
+                            "Retorne SOMENTE o JSON sem explicacoes: "
                             '{"numero":"","objeto":"","data_assinatura":"DD/MM/AAAA",'
                             '"data_estimado":"MM/AAAA","valor_total":0.0,'
                             '"valor_remanescente":0.0,"vigencia":"DD/MM/AAAA",'
-                            '"contratada":"","cnpj":""}\n\n'
-                            "CONTRATO:\n" + texto_pdf[:4000]
+                            '"contratada":"","cnpj":""} '
+                            "CONTRATO: " + texto_pdf[:4000]
                         )
 
                         resp = client.chat.completions.create(
@@ -312,14 +320,9 @@ elif page == "📑 Contratos":
                                 objeto       = st.text_area("Objeto", value=dados.get("objeto", ""), height=80)
                                 data_est_str = st.text_input("Data Orcamento (MM/AAAA)", value=dados.get("data_estimado", ""))
                             with col2:
-                                def parse_valor(v):
-    try:
-        return float(str(v).replace("R$","").replace(".","").replace(",",".").strip())
-    except:
-        return 0.0
-
-val_total = st.number_input("Valor Total R$", value=parse_valor(dados.get("valor_total", 0)), format="%.2f")
-val_rem   = st.number_input("Valor Remanescente R$", value=parse_valor(dados.get("valor_remanescente", 0)), format="%.2f")
+                                val_total = st.number_input("Valor Total R$", value=parse_valor(dados.get("valor_total", 0)), format="%.2f")
+                                val_rem   = st.number_input("Valor Remanescente R$", value=parse_valor(dados.get("valor_remanescente", 0)), format="%.2f")
+                                ind_base  = st.number_input("Indice Base Io", value=float(indice_auto) if indice_auto else 100.0, format="%.2f")
 
                             if st.form_submit_button("Salvar Contrato"):
                                 try:
@@ -480,7 +483,7 @@ elif page == "➕ Orcamento":
                     )
 
                     resp = client.chat.completions.create(
-                        model="llama3-8b-8192",
+                        model="llama-3.3-70b-versatile",
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.2
                     )
