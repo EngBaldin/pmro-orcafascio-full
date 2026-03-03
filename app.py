@@ -27,6 +27,10 @@ st.markdown("""
 .kpi-label {font-size: 0.78rem; color: #64748b; font-weight: 600; text-transform: uppercase;}
 .kpi-value {font-size: 1.8rem; font-weight: 700; color: #0f172a; margin-top: 0.2rem;}
 .kpi-sub {font-size: 0.78rem; color: #94a3b8;}
+.formula-box {
+    background: #eff6ff; border: 2px solid #3b82f6; border-radius: 12px;
+    padding: 1.5rem; margin: 1rem 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -54,9 +58,9 @@ def get_db():
         CREATE TABLE IF NOT EXISTS contratos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             numero TEXT UNIQUE, objeto TEXT, empresa TEXT,
-            valor REAL, reajuste_indice TEXT, reajuste_base REAL,
-            data_assinatura DATE, data_vencimento DATE,
-            status TEXT DEFAULT 'Ativo', pdf_nome TEXT,
+            valor REAL, reajuste_indice TEXT, indice_base REAL,
+            data_base DATE, data_assinatura DATE, data_vencimento DATE,
+            data_ultimo_reajuste DATE, status TEXT DEFAULT 'Ativo', pdf_nome TEXT,
             criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
         );
     """)
@@ -83,12 +87,12 @@ def importar_excel(file):
             try:
                 conn.execute(
                     "INSERT OR IGNORE INTO insumos (codigo,descricao,unidade,preco,tabela,mes_ano,estado) VALUES (?,?,?,?,?,?,?)",
-                    (str(r.get("CÓDIGO",r.get("CODIGO",""))).strip(),
-                     str(r.get("DESCRIÇÃO",r.get("DESCRICAO",""))).strip(),
+                    (str(r.get("CÓDIGO", r.get("CODIGO",""))).strip(),
+                     str(r.get("DESCRIÇÃO", r.get("DESCRICAO",""))).strip(),
                      str(r.get("UNIDADE","")).strip(),
-                     float(r.get("PREÇO_UNITARIO",r.get("PRECO_UNITARIO",0))),
+                     float(r.get("PREÇO_UNITARIO", r.get("PRECO_UNITARIO", 0))),
                      str(r.get("TABELA_REFERENCIA","")).strip(),
-                     str(r.get("MÊS_ANO",r.get("MES_ANO",""))).strip(),
+                     str(r.get("MÊS_ANO", r.get("MES_ANO",""))).strip(),
                      str(r.get("ESTADO","RO")).strip())
                 )
                 count += 1
@@ -134,7 +138,7 @@ def gerar_template():
     ws2.append(["COMP-001","Pavimentação CBUQ 4cm","m²","SICRO-002","Imprimação",1.0,"MATERIAL"])
     ws2.append(["COMP-001","Pavimentação CBUQ 4cm","m²","EQP-002","Patrol 140H",0.008,"EQUIPAMENTO"])
     ws3 = wb.create_sheet("INSTRUÇÕES")
-    ws3.append(["TEMPLATE PMRO Enterprise v6.0 - Preencha INSUMOS e COMPOSIÇÕES e importe no sistema"])
+    ws3.append(["TEMPLATE PMRO Enterprise v6.1 - Preencha INSUMOS e COMPOSIÇÕES e importe no sistema"])
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -152,13 +156,13 @@ with st.sidebar:
     st.markdown("### 📂 Navegação")
     pagina = st.radio(
         "Módulos",
-        ["📊 Dashboard", "💰 Orçamento de Obras", "📋 Gestão de Contratos", "📅 Planejamento Gantt", "📱 Diário de Obras", "⚙️ Bases de Dados"],
+        ["📊 Dashboard","💰 Orçamento de Obras","📋 Gestão de Contratos","📅 Planejamento Gantt","📱 Diário de Obras","⚙️ Bases de Dados"],
         label_visibility="collapsed"
     )
     st.markdown("---")
     st.markdown(f"""
     <div style='text-align:center;color:#64748b;font-size:0.75rem;'>
-        <strong>PMRO Enterprise v6.0</strong><br>
+        <strong>PMRO Enterprise v6.1</strong><br>
         Eng. Guilherme Ritter Baldin<br>
         SEINFRA · Porto Velho · RO<br>
         {datetime.now().strftime("%d/%m/%Y %H:%M")}
@@ -181,8 +185,9 @@ if pagina == "📊 Dashboard":
 
     st.markdown("<br>", unsafe_allow_html=True)
     if not df_orc.empty:
-        fig = px.bar(df_orc.head(8), x="numero", y="total_bdi", title="Orçamentos por Valor (R$)",
-                     color="status", labels={"total_bdi": "Valor R$", "numero": "Orçamento"})
+        fig = px.bar(df_orc.head(8), x="numero", y="total_bdi",
+                     title="Orçamentos por Valor (R$)", color="status",
+                     labels={"total_bdi":"Valor R$","numero":"Orçamento"})
         fig.update_layout(height=350, plot_bgcolor="white", paper_bgcolor="white")
         st.plotly_chart(fig, use_container_width=True)
     else:
@@ -190,7 +195,7 @@ if pagina == "📊 Dashboard":
 
 # ORÇAMENTO
 elif pagina == "💰 Orçamento de Obras":
-    tabs = st.tabs(["➕ Novo Orçamento", "📋 Orçamentos Salvos"])
+    tabs = st.tabs(["➕ Novo Orçamento","📋 Orçamentos Salvos"])
 
     with tabs[0]:
         st.subheader("Novo Orçamento PMRO")
@@ -208,7 +213,7 @@ elif pagina == "💰 Orçamento de Obras":
         if df_ins.empty:
             st.warning("⚠️ Base vazia. Importe insumos em ⚙️ Bases de Dados primeiro.")
         else:
-            col_b1, col_b2 = st.columns([3, 1])
+            col_b1, col_b2 = st.columns([3,1])
             busca = col_b1.text_input("Buscar (nome, código):", placeholder="ex: PEAD, asfalto, pedreiro")
             tab_f = col_b2.selectbox("Tabela:", ["TODAS"] + sorted(df_ins["tabela"].unique().tolist()))
             df_f = df_ins.copy()
@@ -307,7 +312,7 @@ elif pagina == "💰 Orçamento de Obras":
 
 # CONTRATOS
 elif pagina == "📋 Gestão de Contratos":
-    tabs = st.tabs(["➕ Novo Contrato", "🔄 Reajuste", "📋 Todos"])
+    tabs = st.tabs(["➕ Novo Contrato","🔄 Cálculo de Reajuste","📋 Todos Contratos"])
 
     with tabs[0]:
         st.subheader("Cadastro de Contrato")
@@ -331,46 +336,136 @@ elif pagina == "📋 Gestão de Contratos":
                 st.warning(f"Leitura parcial: {e}")
 
         col1, col2 = st.columns(2)
-        numero = col1.text_input("Nº Contrato*", value=numero_c, placeholder="010/PGM/2026")
-        empresa = col2.text_input("Empresa*", value=empresa_c)
-        objeto = st.text_area("Objeto", value=objeto_c, height=80)
+        numero = col1.text_input("Nº Contrato*", value=numero_c, placeholder="047/PGM/2025")
+        empresa = col2.text_input("Empresa Contratada*", value=empresa_c)
+        objeto = st.text_area("Objeto do Contrato", value=objeto_c, height=80)
+
         col1, col2, col3 = st.columns(3)
-        valor = col1.number_input("Valor R$*", value=float(valor_c), min_value=0.0, step=1000.0)
+        valor = col1.number_input("Valor Contratual R$*", value=float(valor_c), min_value=0.0, step=1000.0)
         dt_ass = col2.date_input("Data Assinatura", value=date.today())
         dt_venc = col3.date_input("Data Vencimento")
-        col1, col2 = st.columns(2)
-        indice = col1.selectbox("Índice Reajuste", ["INCC-DI","IPCA","IGP-M","INPC","Sem reajuste"])
-        indice_base = col2.number_input("Índice Base", value=100.0, step=0.01)
+
+        st.markdown("#### 📅 Data-Base e Índice de Reajuste")
+        st.info("⚠️ A data-base é vinculada à data do **orçamento estimado** da Administração (Lei 14.133/2021, Art. 92)")
+        col1, col2, col3 = st.columns(3)
+        dt_base = col1.date_input("📅 Data-Base (orçamento estimado)*", value=date.today())
+        indice = col2.selectbox("Índice Reajuste", ["SINAPI-RO","SICRO-DNIT","SINAPI-RO + SICRO-DNIT","INCC-DI","IPCA","IGP-M"])
+        indice_base_val = col3.number_input("Índice Io (na data-base)*", value=100.0, step=0.0001, format="%.4f",
+                                             help="Valor do índice SINAPI/SICRO na data do orçamento estimado")
 
         if st.button("💾 Salvar Contrato", type="primary"):
             try:
                 conn.execute(
-                    "INSERT INTO contratos (numero,objeto,empresa,valor,reajuste_indice,reajuste_base,data_assinatura,data_vencimento,pdf_nome) VALUES (?,?,?,?,?,?,?,?,?)",
-                    (numero, objeto, empresa, valor, indice, indice_base, dt_ass, dt_venc, uploaded.name if uploaded else "")
+                    "INSERT INTO contratos (numero,objeto,empresa,valor,reajuste_indice,indice_base,data_base,data_assinatura,data_vencimento,pdf_nome) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (numero, objeto, empresa, valor, indice, indice_base_val, dt_base, dt_ass, dt_venc, uploaded.name if uploaded else "")
                 )
                 conn.commit()
                 st.balloons()
-                st.success(f"✅ Contrato {numero} salvo!")
+                st.success(f"✅ Contrato {numero} salvo! Valor: R$ {valor:,.2f}")
             except Exception as e:
                 st.error(f"❌ {e}")
 
     with tabs[1]:
-        st.subheader("Calculadora de Reajuste")
-        st.info("📐 Fórmula: R = V × (Ia / Ib)")
+        st.subheader("🔄 Cálculo de Reajuste Contratual")
+
+        st.markdown("""
+        <div class="formula-box">
+            <h4 style="color:#1e3a8a; margin:0 0 0.5rem 0;">📐 Fórmula Oficial — Lei 14.133/2021</h4>
+            <h3 style="text-align:center; color:#0f172a;">R = ((Ii – Io) / Io) × V</h3>
+            <p style="margin:0.5rem 0 0 0; color:#475569;">
+            <strong>R</strong> = Valor do reajustamento &nbsp;|&nbsp;
+            <strong>Ii</strong> = Índice do mês de reajustamento &nbsp;|&nbsp;
+            <strong>Io</strong> = Índice da data-base (orçamento estimado) &nbsp;|&nbsp;
+            <strong>V</strong> = Valor remanescente a reajustar
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
         df_cont = carregar_contratos()
         if not df_cont.empty:
-            sel = st.selectbox("Contrato:", df_cont["numero"].tolist())
+            sel = st.selectbox("Selecione o Contrato:", df_cont["numero"].tolist())
             c = df_cont[df_cont["numero"] == sel].iloc[0]
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Valor Original", f"R$ {c['valor']:,.2f}")
-            col2.metric("Índice Base", f"{c['reajuste_base']:.4f}")
-            col3.metric("Índice", c["reajuste_indice"])
-            ia = st.number_input("Índice Atual:", value=float(c["reajuste_base"]), step=0.01)
-            if ia > 0 and c["reajuste_base"] > 0:
-                vr = c["valor"] * (ia / c["reajuste_base"])
-                var = ((ia / c["reajuste_base"]) - 1) * 100
-                col1.metric("Valor Reajustado", f"R$ {vr:,.2f}", f"+R$ {vr-c['valor']:,.2f}")
-                col2.metric("Variação", f"{var:.2f}%")
+
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Valor Contratual", f"R$ {c['valor']:,.2f}")
+            col2.metric("Índice Io (base)", f"{c['indice_base']:.4f}")
+            col3.metric("Índice Referência", str(c["reajuste_indice"]))
+            col4.metric("Data-Base", str(c["data_base"]))
+
+            st.markdown("---")
+            st.markdown("#### Parâmetros do Reajuste")
+            col1, col2 = st.columns(2)
+            V = col1.number_input(
+                "💰 V — Valor remanescente a reajustar (R$):",
+                value=float(c["valor"]),
+                step=1000.0,
+                help="Somente obrigações iniciadas e concluídas APÓS a anualidade"
+            )
+            Ii = col2.number_input(
+                "📈 Ii — Índice atual (mês do reajustamento):",
+                value=float(c["indice_base"]),
+                step=0.0001,
+                format="%.4f",
+                help="Consulte o índice no IBGE (SINAPI) ou DNIT (SICRO)"
+            )
+            Io = float(c["indice_base"])
+
+            if Ii > 0 and Io > 0 and V > 0:
+                R = ((Ii - Io) / Io) * V
+                variacao_pct = ((Ii - Io) / Io) * 100
+                valor_total_reajustado = V + R
+
+                st.markdown("#### 📊 Resultado do Reajuste")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("R — Valor do Reajustamento", f"R$ {R:,.2f}",
+                            delta=f"+{variacao_pct:.4f}%" if R >= 0 else f"{variacao_pct:.4f}%")
+                col2.metric("Variação do Índice", f"{variacao_pct:.4f}%")
+                col3.metric("Novo Valor Total", f"R$ {valor_total_reajustado:,.2f}")
+
+                st.markdown("#### 📋 Memória de Cálculo Oficial")
+                st.code(f"""
+MEMÓRIA DE CÁLCULO — REAJUSTE CONTRATUAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Contrato Nº:    {c['numero']}
+Empresa:        {c['empresa']}
+Índice Adotado: {c['reajuste_indice']}
+Data-Base (Io): {c['data_base']}
+
+FÓRMULA:  R = ((Ii – Io) / Io) × V
+
+Ii  (Índice mês reajuste):   {Ii:.4f}
+Io  (Índice data-base):      {Io:.4f}
+V   (Valor remanescente):    R$ {V:,.2f}
+
+CÁLCULO:
+R = (({Ii:.4f} – {Io:.4f}) / {Io:.4f}) × R$ {V:,.2f}
+R = ({Ii - Io:.4f} / {Io:.4f}) × R$ {V:,.2f}
+R = {(Ii - Io)/Io:.6f} × R$ {V:,.2f}
+R = R$ {R:,.2f}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VALOR DO REAJUSTAMENTO (R):    R$ {R:,.2f}
+VALOR TOTAL REAJUSTADO (V+R):  R$ {valor_total_reajustado:,.2f}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Elaborado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}
+Responsável:  Eng. Guilherme Ritter Baldin - SEINFRA/PMRO
+                """)
+
+                output = io.BytesIO()
+                mem_df = pd.DataFrame({
+                    "Parâmetro": ["Contrato","Empresa","Índice","Data-Base","Ii","Io","V","R","V+R","Data Cálculo"],
+                    "Valor": [c['numero'], c['empresa'], c['reajuste_indice'], str(c['data_base']),
+                              f"{Ii:.4f}", f"{Io:.4f}", f"R$ {V:,.2f}", f"R$ {R:,.2f}",
+                              f"R$ {valor_total_reajustado:,.2f}", datetime.now().strftime("%d/%m/%Y")]
+                })
+                with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                    mem_df.to_excel(writer, sheet_name="Memória de Cálculo", index=False)
+                st.download_button(
+                    "📥 Exportar Memória de Cálculo Excel",
+                    output.getvalue(),
+                    f"Reajuste_{c['numero'].replace('/','_')}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
         else:
             st.info("Cadastre contratos na aba anterior.")
 
@@ -381,25 +476,25 @@ elif pagina == "📋 Gestão de Contratos":
                 column_config={"valor": st.column_config.NumberColumn("Valor R$", format="R$ %.2f")})
             st.download_button("📥 CSV", df_cont.to_csv(index=False).encode(), "PMRO_Contratos.csv")
         else:
-            st.info("Nenhum contrato.")
+            st.info("Nenhum contrato cadastrado.")
 
 # GANTT
 elif pagina == "📅 Planejamento Gantt":
     st.subheader("📅 Planejamento Gantt")
-    st.info("🚧 Em desenvolvimento - próxima versão: cronograma físico-financeiro interativo com curva ABC 112/2009.")
+    st.info("🚧 Em desenvolvimento — próxima versão: cronograma físico-financeiro interativo com curva ABC 112/2009.")
 
 # DIÁRIO
 elif pagina == "📱 Diário de Obras":
     st.subheader("📱 Diário de Obras")
-    st.info("🚧 Em desenvolvimento - próxima versão: registro diário, equipe, chuvas, relatório mensal automático.")
+    st.info("🚧 Em desenvolvimento — próxima versão: registro diário, equipe, chuvas, relatório mensal automático.")
 
 # BASES DE DADOS
 elif pagina == "⚙️ Bases de Dados":
-    tabs = st.tabs(["📥 Importar Tabela", "🔍 Ver Base", "➕ Insumo Manual"])
+    tabs = st.tabs(["📥 Importar Tabela","🔍 Ver Base","➕ Insumo Manual"])
 
     with tabs[0]:
         st.subheader("Importar Tabela de Referência")
-        st.info("📌 Baixe o template, preencha com seus dados SINAPI/SICRO/ORSE e importe.")
+        st.info("📌 Baixe o template, preencha com SINAPI/SICRO/ORSE/BASE_PMRO e importe.")
         st.download_button(
             "⬇️ Baixar Template Excel PMRO",
             gerar_template(),
@@ -457,7 +552,7 @@ elif pagina == "⚙️ Bases de Dados":
 st.markdown("---")
 st.markdown(f"""
 <div style='text-align:center;color:#94a3b8;font-size:0.8rem;padding:1rem;'>
-    🏗️ <strong>PMRO Enterprise v6.0</strong> · SEINFRA · Prefeitura Municipal de Porto Velho<br>
+    🏗️ <strong>PMRO Enterprise v6.1</strong> · SEINFRA · Prefeitura Municipal de Porto Velho<br>
     © {datetime.now().year} Eng. Guilherme Ritter Baldin · Todos os direitos reservados
 </div>
 """, unsafe_allow_html=True)
