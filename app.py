@@ -312,9 +312,14 @@ elif page == "📑 Contratos":
                                 objeto       = st.text_area("Objeto", value=dados.get("objeto", ""), height=80)
                                 data_est_str = st.text_input("Data Orcamento (MM/AAAA)", value=dados.get("data_estimado", ""))
                             with col2:
-                                val_total = st.number_input("Valor Total R$", value=float(str(dados.get("valor_total", 0)).replace(",", ".")), format="%.2f")
-                                val_rem   = st.number_input("Valor Remanescente R$", value=float(str(dados.get("valor_remanescente", 0)).replace(",", ".")), format="%.2f")
-                                ind_base  = st.number_input("Indice Base Io", value=float(indice_auto) if indice_auto else 100.0, format="%.2f")
+                                def parse_valor(v):
+    try:
+        return float(str(v).replace("R$","").replace(".","").replace(",",".").strip())
+    except:
+        return 0.0
+
+val_total = st.number_input("Valor Total R$", value=parse_valor(dados.get("valor_total", 0)), format="%.2f")
+val_rem   = st.number_input("Valor Remanescente R$", value=parse_valor(dados.get("valor_remanescente", 0)), format="%.2f")
 
                             if st.form_submit_button("Salvar Contrato"):
                                 try:
