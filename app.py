@@ -97,17 +97,25 @@ ESTADOS_SINAPI = {
 }
 
 @st.cache_data(ttl=86400)
+@st.cache_data(ttl=86400)
 def buscar_sinapi_ibge(ano, mes, estado, desonerado):
     mes_str = MESES_PT[mes]
-    url = (
-        "https://ftp.ibge.gov.br/Precos_Custos_e_Indices_da_Construcao_Civil/"
-        "Fasciculo_Indicadores_IBGE/sinapi_"
-        + str(ano) + "{:02d}".format(mes) + "caderno.pdf"
-    )
+    # Tenta os dois padrões de URL que o IBGE usa
+    urls = [
+        "https://ftp.ibge.gov.br/Precos_Custos_e_Indices_da_Construcao_Civil/SINAPI/Fasciculo_Indicadores_IBGE/SINAPI_Indicadores_" + "{:02d}".format(mes) + "_" + str(ano) + ".pdf",
+        "https://ftp.ibge.gov.br/Precos_Custos_e_Indices_da_Construcao_Civil/Fasciculo_Indicadores_IBGE/sinapi_" + str(ano) + "{:02d}".format(mes) + "caderno.pdf",
+        "https://ftp.ibge.gov.br/Precos_Custos_e_Indices_da_Construcao_Civil/SINAPI/Fasciculo_Indicadores_IBGE/sinapi_" + str(ano) + "{:02d}".format(mes) + "caderno.pdf",
+    ]
     try:
-        resp = requests.get(url, timeout=15)
-        if resp.status_code != 200:
-            return None, "PDF nao encontrado para " + mes_str + "/" + str(ano)
+        resp = None
+        for url in urls:
+            r = requests.get(url, timeout=15)
+            if r.status_code == 200:
+                resp = r
+                break
+        if not resp:
+            return None, "PDF nao encontrado para " + mes_str + "/" + str(ano) + " (tentadas 3 URLs)"
+
         with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
             for page in pdf.pages:
                 texto = page.extract_text()
