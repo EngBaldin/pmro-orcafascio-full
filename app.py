@@ -61,7 +61,8 @@ conn = init_db()
 # ─────────────────────────────────────────
 # GROQ CLIENT
 # ─────────────────────────────────────────
-GROQ_KEY = st.secrets.get("GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
+GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
+
 
 @st.cache_resource
 def get_groq():
