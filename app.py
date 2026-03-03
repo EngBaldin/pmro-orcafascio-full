@@ -573,21 +573,22 @@ buf = io.BytesIO()
 tmpl.save(buf)
 st.download_button(
     "⬇️ Baixar Template Excel PMRO",
-buf.getvalue(),
-"TEMPLATE_PMRO.xlsx",
-mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-type="primary"
+    buf.getvalue(),
+    "TEMPLATE_PMRO.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    type="primary"
 )
 
-
 st.markdown("---")
-        upload_excel = st.file_uploader("📊 Upload Tabela Preenchida (.xlsx)", type=["xlsx"])
-        if upload_excel:
-            ok, msg = importar_excel(upload_excel)
-            if ok:
-                st.success(msg)
-                st.rerun()
-            else:
+upload_excel = st.file_uploader("📊 Upload Tabela Preenchida (.xlsx)", type=["xlsx"])
+if upload_excel:
+    ok, msg = importar_excel(upload_excel)
+    if ok:
+        st.success(msg)
+        st.rerun()
+    else:
+        st.error(msg)
+
                 st.error(msg)
 
     with tabs[1]:
