@@ -165,13 +165,14 @@ SINAPI_INSUMOS = [
 # ─────────────────────────────────────────
 st.sidebar.title("Menu Principal")
 page = st.sidebar.radio("", [
-    "Dashboard",
-    "Contratos",
-    "Orcamento",
-    "Pesquisa de Precos",
-    "Reajustes",
-    "Relatorios"
+    "📊 Dashboard",
+    "📑 Contratos",
+    "➕ Orcamento",
+    "🔍 Pesquisa de Precos",
+    "📈 Reajustes",
+    "📄 Relatorios"
 ])
+
 
 if st.sidebar.button("Atualizar BCB"):
     st.cache_data.clear()
