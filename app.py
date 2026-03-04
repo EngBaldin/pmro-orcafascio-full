@@ -585,6 +585,9 @@ elif page == "📋 Planilha Orcamentaria":
                         )
 
                         if st.button("💾 Salvar Planilha e Atualizar Contrato"):
+                            st.write("DEBUG — indice_ref:", indice_ref)
+                            st.write("DEBUG — mes_ano_ref:", mes_ano_ref)
+                            st.write("DEBUG — desonerado_p:", desonerado_p)
                             conn.execute(
                                 "INSERT INTO planilhas_orcamentarias (contrato_id, arquivo_nome, indice_referencia, mes_ano_referencia, desonerado, valor_total, observacoes) VALUES (?,?,?,?,?,?,?)",
                                 (contrato_sel, arquivo.name, indice_ref, mes_ano_ref, desonerado_p, valor_total_p, observacoes_p)
