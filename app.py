@@ -296,124 +296,166 @@ elif page == "📑 Contratos":
     tab1, tab2, tab3 = st.tabs(["Upload PDF (IA)", "Cadastro Manual", "Contratos Cadastrados"])
 
     with tab1:
-        st.subheader("Envie o PDF do Contrato")
-        st.caption("A IA ira extrair automaticamente: numero, objeto, datas, valores e indices.")
+        st.subheader("Upload da Planilha Ganha na Licitacao")
+        st.caption("Aceita Excel (.xlsx) ou PDF. A IA ira identificar o indice e mes de referencia.")
 
-        pdf_file = st.file_uploader("Selecione o PDF do Contrato", type=["pdf"])
+        df_c = pd.read_sql("SELECT id, numero, objeto FROM contratos", conn)
+        if df_c.empty:
+            st.warning("Cadastre um contrato primeiro antes de vincular uma planilha.")
+        else:
+            contrato_sel = st.selectbox(
+                "Vincular ao Contrato",
+                df_c['id'],
+                format_func=lambda x: df_c[df_c['id']==x]['numero'].values[0] + " — " + df_c[df_c['id']==x]['objeto'].values[0][:50]
+            )
 
-        if pdf_file:
-            with st.spinner("Lendo PDF..."):
-                texto_pdf = ""
-                with pdfplumber.open(pdf_file) as pdf:
-                    for pg in pdf.pages:
-                        t = pg.extract_text()
-                        if t:
-                            texto_pdf += t + "\n"
+            arquivo = st.file_uploader("Selecione a Planilha (Excel ou PDF)", type=["xlsx","xls","pdf"])
 
-            if texto_pdf:
-                st.success("PDF lido! " + str(len(texto_pdf)) + " caracteres extraidos.")
+            if arquivo:
+                # Salva no session_state para nao perder ao clicar botao
+                st.session_state['plan_arquivo_nome'] = arquivo.name
+                st.session_state['plan_contrato_sel'] = contrato_sel
+                with st.spinner("Lendo arquivo..."):
+                    texto_arquivo = ler_arquivo_texto(arquivo)
+                if texto_arquivo:
+                    st.session_state['plan_texto'] = texto_arquivo
+                    st.success("Arquivo lido! " + str(len(texto_arquivo)) + " caracteres.")
 
-                with st.spinner("IA analisando contrato..."):
-                    try:
-                        client = get_groq()
-                        prompt = (
-                            "Voce e um assistente especialista em contratos publicos brasileiros. "
-                            "Extraia os dados do contrato abaixo e retorne SOMENTE JSON valido, sem texto extra. "
-                            "\n\nREGRAS IMPORTANTES:"
-                            "\n- valor_total: pegue o numero que aparece apos 'R$' e ANTES do parentese com o extenso."
-                            "\n  Exemplo: 'R$ 1.377.361,80 (Um milhao...)' -> valor_total deve ser 1377361.80"
-                            "\n  Converta: remova pontos de milhar, troque virgula por ponto decimal."
-                            "\n- valor_remanescente: mesmo criterio. Se nao encontrar, use o mesmo valor_total."
-                            "\n- data_estimado: mes/ano do orcamento de referencia ou data-base do contrato, formato MM/AAAA."
-                            "\n- Todos os valores numericos devem ser float, NUNCA string."
-                            "\n\nFORMATO OBRIGATORIO:\n"
-                            "{\"numero\":\"\",\"objeto\":\"\",\"data_assinatura\":\"DD/MM/AAAA\","
-                            "\"data_estimado\":\"MM/AAAA\",\"valor_total\":0.0,"
-                            "\"valor_remanescente\":0.0,\"vigencia\":\"DD/MM/AAAA\","
-                            "\"contratada\":\"\",\"cnpj\":\"\"}"
-                            "\n\nCONTRATO:\n" + texto_pdf[:4000]
-                        )
-
-                        resp = client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=[{"role": "user", "content": prompt}],
-                            temperature=0.1
-                        )
-
-                        json_str = resp.choices[0].message.content.strip()
-                        json_str = re.sub(r"```json|```", "", json_str).strip()
-                        dados = json.loads(json_str)
-
-                        valores_encontrados = extrair_valores_pdf(texto_pdf)
-                        val_ia = parse_valor(dados.get("valor_total", 0))
-                        if val_ia < 100 and valores_encontrados:
-                            dados["valor_total"] = max(valores_encontrados)
-                        val_rem_ia = parse_valor(dados.get("valor_remanescente", 0))
-                        if val_rem_ia < 100 and valores_encontrados:
-                            dados["valor_remanescente"] = max(valores_encontrados)
-
-                        if valores_encontrados:
-                            st.info("💰 Valores no PDF: " +
-                                    " | ".join(["R$ {:,.2f}".format(v) for v in sorted(set(valores_encontrados), reverse=True)[:5]]))
-
-                        st.success("Dados extraidos pela IA!")
-                        st.json(dados)
-
-                        data_est_raw = dados.get("data_estimado", "")
-                        mes_ano = None
+            if st.session_state.get('plan_texto') and st.session_state.get('plan_arquivo_nome'):
+                if st.button("🤖 Analisar com IA"):
+                    with st.spinner("IA identificando indice e referencia..."):
                         try:
-                            partes = data_est_raw.replace("/", "-").split("-")
-                            if len(partes) == 2:
-                                mes_ano = (int(partes[0]), int(partes[1]))
-                        except:
-                            pass
+                            client = get_groq()
+                            prompt = (
+                                "Voce e um engenheiro civil especialista em orcamentos publicos brasileiros. "
+                                "Analise a planilha orcamentaria abaixo e extraia SOMENTE o JSON sem explicacoes: "
+                                "{\"indice_referencia\":\"\","
+                                "\"mes_ano_referencia\":\"MM/AAAA\","
+                                "\"desonerado\":\"Sim ou Nao\","
+                                "\"valor_total\":0.0,"
+                                "\"observacoes\":\"\"}"
+                                "\n\nREGRAS:"
+                                "\n- indice_referencia: tabela principal usada (SINAPI, SICRO, ORSE, etc.)"
+                                "\n- mes_ano_referencia: mes e ano da tabela principal, formato MM/AAAA"
+                                "\n- desonerado: Sim ou Nao"
+                                "\n- valor_total: valor total com BDI, float"
+                                "\n- observacoes: informacoes relevantes"
+                                "\n\nPLANILHA:\n" + st.session_state['plan_texto'][:4000]
+                            )
+                            resp = client.chat.completions.create(
+                                model="llama-3.3-70b-versatile",
+                                messages=[{"role": "user", "content": prompt}],
+                                temperature=0.1
+                            )
+                            json_str = resp.choices[0].message.content.strip()
+                            json_str = re.sub(r"```json|```", "", json_str).strip()
+                            st.session_state['plan_dados'] = json.loads(json_str)
+                            st.success("IA identificou os dados!")
+                        except Exception as e:
+                            st.error("Erro IA: " + str(e))
+                            st.session_state['plan_dados'] = {
+                                "indice_referencia": "SINAPI",
+                                "mes_ano_referencia": "",
+                                "desonerado": "Nao",
+                                "valor_total": 0.0,
+                                "observacoes": ""
+                            }
 
-                        indice_auto = None
-                        if mes_ano:
-                            col_a, col_b = st.columns(2)
-                            estado_sel = col_a.selectbox("Estado para SINAPI", list(ESTADOS_SINAPI.keys()), index=0)
-                            desonerado = col_b.checkbox("Desonerado?", value=False)
+                if st.session_state.get('plan_dados'):
+                    dados_planilha = st.session_state['plan_dados']
+                    st.json(dados_planilha)
+                    st.markdown("---")
+                    st.subheader("Confirme e salve:")
 
-                            with st.spinner("Buscando indice SINAPI IBGE..."):
-                                indice_auto, msg = buscar_sinapi_ibge(mes_ano[1], mes_ano[0], estado_sel, desonerado)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        indice_ref = st.selectbox(
+                            "Indice de Referencia",
+                            ["SINAPI", "SICRO", "ORSE", "SEINFRA-CE", "Outro"],
+                            index=["SINAPI","SICRO","ORSE","SEINFRA-CE","Outro"].index(
+                                dados_planilha.get("indice_referencia","SINAPI")
+                            ) if dados_planilha.get("indice_referencia","") in ["SINAPI","SICRO","ORSE","SEINFRA-CE","Outro"] else 0,
+                            key="indice_ref_sel"
+                        )
+                        mes_ano_ref = st.text_input(
+                            "Mes/Ano Referencia (MM/AAAA)",
+                            value=dados_planilha.get("mes_ano_referencia", ""),
+                            key="mes_ano_ref_inp"
+                        )
+                    with col2:
+                        desonerado_p = st.selectbox(
+                            "Desonerado?",
+                            ["Nao", "Sim"],
+                            index=0 if dados_planilha.get("desonerado","Nao") == "Nao" else 1,
+                            key="desonerado_sel"
+                        )
+                        valor_total_p = st.number_input(
+                            "Valor Total R$",
+                            value=parse_valor(dados_planilha.get("valor_total", 0)),
+                            format="%.2f",
+                            key="valor_total_plan"
+                        )
+                    observacoes_p = st.text_area(
+                        "Observacoes",
+                        value=dados_planilha.get("observacoes", ""),
+                        height=80,
+                        key="obs_plan"
+                    )
 
-                            if indice_auto:
-                                st.success("Indice SINAPI " + estado_sel + " " + data_est_raw + ": " + str(indice_auto))
-                            else:
-                                st.warning("Nao foi possivel obter indice: " + msg)
+                    if st.button("💾 Salvar Planilha e Atualizar Contrato"):
+                        nome_arq     = st.session_state['plan_arquivo_nome']
+                        contrato_id  = st.session_state['plan_contrato_sel']
 
-                        st.markdown("---")
-                        st.subheader("Confirme e salve:")
+                        conn.execute(
+                            "INSERT INTO planilhas_orcamentarias (contrato_id, arquivo_nome, indice_referencia, mes_ano_referencia, desonerado, valor_total, observacoes) VALUES (?,?,?,?,?,?,?)",
+                            (contrato_id, nome_arq, indice_ref, mes_ano_ref, desonerado_p, valor_total_p, observacoes_p)
+                        )
+                        conn.commit()
+                        st.success("✅ Planilha vinculada!")
 
-                        with st.form("salvar_ia"):
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                numero       = st.text_input("Numero", value=dados.get("numero", ""))
-                                objeto       = st.text_area("Objeto", value=dados.get("objeto", ""), height=80)
-                                data_est_str = st.text_input("Data Orcamento (MM/AAAA)", value=dados.get("data_estimado", ""))
-                            with col2:
-                                val_total = st.number_input("Valor Total R$", value=parse_valor(dados.get("valor_total", 0)), format="%.2f")
-                                val_rem   = st.number_input("Valor Remanescente R$", value=parse_valor(dados.get("valor_remanescente", 0)), format="%.2f")
-                                ind_base  = st.number_input("Indice Base Io", value=float(indice_auto) if indice_auto else 100.0, format="%.2f")
+                        if mes_ano_ref:
+                            try:
+                                partes   = mes_ano_ref.split("/")
+                                mes_r    = int(partes[0])
+                                ano_r    = int(partes[1])
+                                des_bool = desonerado_p == "Sim"
 
-                            if st.form_submit_button("Salvar Contrato"):
-                                try:
-                                    partes = data_est_str.split("/")
-                                    dt_salvar = partes[1] + "-" + partes[0] + "-01"
-                                except:
-                                    dt_salvar = str(date.today())
-                                conn.execute(
-                                    "INSERT INTO contratos (numero, objeto, data_estimado, reajuste_base, dt_base, valor_total, valor_remanescente) VALUES (?,?,?,?,?,?,?)",
-                                    (numero, objeto, dt_salvar, ind_base, dt_salvar, val_total, val_rem)
-                                )
-                                conn.commit()
-                                st.success("Contrato " + numero + " salvo!")
-                                st.balloons()
+                                with st.spinner("Buscando indice " + indice_ref + " " + mes_ano_ref + "..."):
+                                    if indice_ref == "SINAPI":
+                                        idx_valor, msg_idx = buscar_sinapi_ibge(ano_r, mes_r, "RO", des_bool)
+                                    elif indice_ref == "INCC":
+                                        idx_valor, _ = get_bcb(433)
+                                        msg_idx = "OK"
+                                    elif indice_ref == "IPCA":
+                                        idx_valor, _ = get_bcb(438)
+                                        msg_idx = "OK"
+                                    elif indice_ref == "IGP-M":
+                                        idx_valor, _ = get_bcb(189)
+                                        msg_idx = "OK"
+                                    else:
+                                        idx_valor = None
+                                        msg_idx   = "Indice nao automatizado ainda"
 
-                    except Exception as e:
-                        st.error("Erro IA: " + str(e))
-            else:
-                st.error("Nao foi possivel extrair texto do PDF.")
+                                if idx_valor:
+                                    dt_base_nova = partes[1] + "-" + partes[0] + "-01"
+                                    conn.execute(
+                                        "UPDATE contratos SET data_estimado=?, dt_base=?, reajuste_base=? WHERE id=?",
+                                        (dt_base_nova, dt_base_nova, idx_valor, contrato_id)
+                                    )
+                                    conn.commit()
+                                    st.success("✅ Contrato atualizado! Indice Io = " + str(idx_valor) + " | Data-base: " + mes_ano_ref)
+                                    st.balloons()
+                                    # Limpa session_state apos salvar
+                                    for k in ['plan_texto','plan_dados','plan_arquivo_nome','plan_contrato_sel']:
+                                        st.session_state.pop(k, None)
+                                else:
+                                    st.warning("Indice nao encontrado: " + msg_idx)
+                                    st.info("Va em Contratos e atualize o Indice Base Io manualmente.")
+
+                            except Exception as e:
+                                st.error("Erro ao atualizar contrato: " + str(e))
+                        else:
+                            st.warning("Mes/ano nao identificado. Atualize o contrato manualmente.")
 
     with tab2:
         with st.form("form_manual"):
