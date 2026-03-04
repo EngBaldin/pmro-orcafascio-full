@@ -499,6 +499,7 @@ elif page == "📋 Planilha Orcamentaria":
             arquivo = st.file_uploader("Selecione a Planilha (Excel ou PDF)", type=["xlsx","xls","pdf"])
 
             if arquivo:
+                    st.write("DEBUG — arquivo carregado:", arquivo.name)
                     with st.spinner("Lendo arquivo..."):
                         texto_arquivo = ler_arquivo_texto(arquivo)
 
@@ -585,6 +586,7 @@ elif page == "📋 Planilha Orcamentaria":
                         )
 
                         if st.button("💾 Salvar Planilha e Atualizar Contrato"):
+                            st.write("DEBUG — botao clicado!")
                             st.write("DEBUG — indice_ref:", indice_ref)
                             st.write("DEBUG — mes_ano_ref:", mes_ano_ref)
                             st.write("DEBUG — desonerado_p:", desonerado_p)
