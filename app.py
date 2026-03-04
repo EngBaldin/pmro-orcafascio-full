@@ -75,44 +75,72 @@ def ler_arquivo_texto(arquivo):
             texto += df.to_string() + "\n\n"
     return texto
 
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import streamlit as st
+
 # ─────────────────────────────────────────
-# BANCO DE DADOS
+# BANCO DE DADOS - POSTGRES
 # ─────────────────────────────────────────
 @st.cache_resource
 def init_db():
-    conn = sqlite3.connect('pmro_contratos.db', check_same_thread=False)
-    conn.execute('''CREATE TABLE IF NOT EXISTS contratos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        numero TEXT, objeto TEXT,
-        data_estimado TEXT, reajuste_base REAL,
-        dt_base TEXT, valor_total REAL,
-        valor_remanescente REAL, indice_atual REAL,
-        reajuste_calculado REAL,
-        data_cadastro TEXT DEFAULT CURRENT_DATE
-    )''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS orcamentos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT, descricao TEXT, status TEXT DEFAULT "Em Elaboracao",
-        bdi REAL, valor_total REAL, itens TEXT,
-        data_criacao TEXT DEFAULT CURRENT_DATE
-    )''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS planilhas_orcamentarias (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        contrato_id INTEGER,
-        arquivo_nome TEXT,
-        indice_referencia TEXT,
-        mes_ano_referencia TEXT,
-        desonerado TEXT,
-        valor_total REAL,
-        observacoes TEXT,
-        data_upload TEXT DEFAULT CURRENT_DATE,
-        FOREIGN KEY (contrato_id) REFERENCES contratos(id)
-    )''')
+    conn = psycopg2.connect(
+        st.secrets["DATABASE_URL"],
+        cursor_factory=RealDictCursor
+    )
+    cur = conn.cursor()
+
+    # Tabela contratos
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS contratos (
+            id SERIAL PRIMARY KEY,
+            numero TEXT,
+            objeto TEXT,
+            data_estimado TEXT,
+            reajuste_base REAL,
+            dt_base TEXT,
+            valor_total REAL,
+            valor_remanescente REAL,
+            indice_atual REAL,
+            reajuste_calculado REAL,
+            data_cadastro DATE DEFAULT CURRENT_DATE
+        )
+    ''')
+
+    # Tabela orcamentos
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS orcamentos (
+            id SERIAL PRIMARY KEY,
+            nome TEXT,
+            descricao TEXT,
+            status TEXT DEFAULT 'Em Elaboracao',
+            bdi REAL,
+            valor_total REAL,
+            itens TEXT,
+            data_criacao DATE DEFAULT CURRENT_DATE
+        )
+    ''')
+
+    # Tabela planilhas_orcamentarias
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS planilhas_orcamentarias (
+            id SERIAL PRIMARY KEY,
+            contrato_id INTEGER REFERENCES contratos(id),
+            arquivo_nome TEXT,
+            indice_referencia TEXT,
+            mes_ano_referencia TEXT,
+            desonerado TEXT,
+            valor_total REAL,
+            observacoes TEXT,
+            data_upload DATE DEFAULT CURRENT_DATE
+        )
+    ''')
+
     conn.commit()
+    cur.close()
     return conn
 
 conn = init_db()
-
 # ─────────────────────────────────────────
 # GROQ CLIENT
 # ─────────────────────────────────────────
