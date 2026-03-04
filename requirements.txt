@@ -1,7 +1,6 @@
 streamlit
 pandas
 plotly
-psycopg[binary]
 groq
 pdfplumber
 openpyxl
