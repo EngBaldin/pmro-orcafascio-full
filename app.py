@@ -499,59 +499,56 @@ elif page == "📋 Planilha Orcamentaria":
             arquivo = st.file_uploader("Selecione a Planilha (Excel ou PDF)", type=["xlsx","xls","pdf"])
 
             if arquivo:
-                with st.spinner("Lendo arquivo..."):
-                    texto_arquivo = ler_arquivo_texto(arquivo)
+                    with st.spinner("Lendo arquivo..."):
+                        texto_arquivo = ler_arquivo_texto(arquivo)
 
-                if texto_arquivo:
-                    st.success("Arquivo lido! " + str(len(texto_arquivo)) + " caracteres extraidos.")
+                    if texto_arquivo:
+                        st.success("Arquivo lido! " + str(len(texto_arquivo)) + " caracteres extraidos.")
 
-                    with st.spinner("IA identificando indice e referencia..."):
-                        try:
-                            client = get_groq()
-                            prompt = (
-                                "Voce e um engenheiro civil especialista em orcamentos publicos brasileiros. "
-                                "Analise a planilha orcamentaria abaixo e extraia SOMENTE o JSON sem explicacoes: "
-                                "{\"indice_referencia\":\"\","
-                                "\"mes_ano_referencia\":\"MM/AAAA\","
-                                "\"desonerado\":\"Sim ou Nao\","
-                                "\"valor_total\":0.0,"
-                                "\"observacoes\":\"\"}"
-                                "\n\nREGRAS:"
-                                "\n- indice_referencia: qual tabela de precos foi usada (SINAPI, SICRO, ORSE, etc.)"
-                                "\n- mes_ano_referencia: mes e ano da tabela de referencia usada no orcamento"
-                                "\n- desonerado: se a planilha usa custos desonerados ou nao"
-                                "\n- valor_total: valor total da planilha orcamentaria com BDI, float"
-                                "\n- observacoes: qualquer informacao relevante sobre o indice ou referencia"
-                                "\n\nPLANILHA:\n" + texto_arquivo[:4000]
-                            )
+                        with st.spinner("IA identificando indice e referencia..."):
+                            try:
+                                client = get_groq()
+                                prompt = (
+                                    "Voce e um engenheiro civil especialista em orcamentos publicos brasileiros. "
+                                    "Analise a planilha orcamentaria abaixo e extraia SOMENTE o JSON sem explicacoes: "
+                                    "{\"indice_referencia\":\"\","
+                                    "\"mes_ano_referencia\":\"MM/AAAA\","
+                                    "\"desonerado\":\"Sim ou Nao\","
+                                    "\"valor_total\":0.0,"
+                                    "\"observacoes\":\"\"}"
+                                    "\n\nREGRAS:"
+                                    "\n- indice_referencia: qual tabela de precos foi usada (SINAPI, SICRO, ORSE, etc.)"
+                                    "\n- mes_ano_referencia: mes e ano da tabela de referencia usada no orcamento"
+                                    "\n- desonerado: se a planilha usa custos desonerados ou nao"
+                                    "\n- valor_total: valor total da planilha orcamentaria com BDI, float"
+                                    "\n- observacoes: qualquer informacao relevante"
+                                    "\n\nPLANILHA:\n" + texto_arquivo[:4000]
+                                )
+                                resp = client.chat.completions.create(
+                                    model="llama-3.3-70b-versatile",
+                                    messages=[{"role": "user", "content": prompt}],
+                                    temperature=0.1
+                                )
+                                json_str = resp.choices[0].message.content.strip()
+                                json_str = re.sub(r"```json|```", "", json_str).strip()
+                                dados_planilha = json.loads(json_str)
+                                st.success("IA identificou os dados!")
+                                st.json(dados_planilha)
 
-                            resp = client.chat.completions.create(
-                                model="llama-3.3-70b-versatile",
-                                messages=[{"role": "user", "content": prompt}],
-                                temperature=0.1
-                            )
+                            except Exception as e:
+                                st.error("Erro IA: " + str(e))
+                                dados_planilha = {
+                                    "indice_referencia": "",
+                                    "mes_ano_referencia": "",
+                                    "desonerado": "Nao",
+                                    "valor_total": 0.0,
+                                    "observacoes": ""
+                                }
 
-                            json_str = resp.choices[0].message.content.strip()
-                            json_str = re.sub(r"```json|```", "", json_str).strip()
-                            dados_planilha = json.loads(json_str)
+                        st.markdown("---")
+                        st.subheader("Confirme e salve:")
 
-                            st.success("IA identificou os dados!")
-                            st.json(dados_planilha)
-
-                        except Exception as e:
-                            st.error("Erro IA: " + str(e))
-                            dados_planilha = {
-                                "indice_referencia": "",
-                                "mes_ano_referencia": "",
-                                "desonerado": "Nao",
-                                "valor_total": 0.0,
-                                "observacoes": ""
-                            }
-
-                    st.markdown("---")
-                    st.subheader("Confirme e salve:")
-
-                    with st.form("salvar_planilha"):
+                        # Campos fora do form para manter valores no session_state
                         col1, col2 = st.columns(2)
                         with col1:
                             indice_ref = st.selectbox(
@@ -559,81 +556,84 @@ elif page == "📋 Planilha Orcamentaria":
                                 ["SINAPI", "SICRO", "ORSE", "SEINFRA-CE", "Outro"],
                                 index=["SINAPI","SICRO","ORSE","SEINFRA-CE","Outro"].index(
                                     dados_planilha.get("indice_referencia","SINAPI")
-                                ) if dados_planilha.get("indice_referencia","") in ["SINAPI","SICRO","ORSE","SEINFRA-CE","Outro"] else 0
+                                ) if dados_planilha.get("indice_referencia","") in ["SINAPI","SICRO","ORSE","SEINFRA-CE","Outro"] else 0,
+                                key="indice_ref_sel"
                             )
                             mes_ano_ref = st.text_input(
                                 "Mes/Ano Referencia (MM/AAAA)",
-                                value=dados_planilha.get("mes_ano_referencia", "")
+                                value=dados_planilha.get("mes_ano_referencia", ""),
+                                key="mes_ano_ref_inp"
                             )
                         with col2:
                             desonerado_p = st.selectbox(
                                 "Desonerado?",
                                 ["Nao", "Sim"],
-                                index=0 if dados_planilha.get("desonerado","Nao") == "Nao" else 1
+                                index=0 if dados_planilha.get("desonerado","Nao") == "Nao" else 1,
+                                key="desonerado_sel"
                             )
                             valor_total_p = st.number_input(
                                 "Valor Total R$",
                                 value=parse_valor(dados_planilha.get("valor_total", 0)),
-                                format="%.2f"
+                                format="%.2f",
+                                key="valor_total_plan"
                             )
                         observacoes_p = st.text_area(
                             "Observacoes",
                             value=dados_planilha.get("observacoes", ""),
-                            height=80
+                            height=80,
+                            key="obs_plan"
                         )
-                        salvar_plan = st.form_submit_button("Salvar Planilha")
 
-                    if salvar_plan:
-                        conn.execute(
-                            "INSERT INTO planilhas_orcamentarias (contrato_id, arquivo_nome, indice_referencia, mes_ano_referencia, desonerado, valor_total, observacoes) VALUES (?,?,?,?,?,?,?)",
-                            (contrato_sel, arquivo.name, indice_ref, mes_ano_ref, desonerado_p, valor_total_p, observacoes_p)
-                        )
-                        conn.commit()
-                        st.success("✅ Planilha vinculada ao contrato!")
+                        if st.button("💾 Salvar Planilha e Atualizar Contrato"):
+                            conn.execute(
+                                "INSERT INTO planilhas_orcamentarias (contrato_id, arquivo_nome, indice_referencia, mes_ano_referencia, desonerado, valor_total, observacoes) VALUES (?,?,?,?,?,?,?)",
+                                (contrato_sel, arquivo.name, indice_ref, mes_ano_ref, desonerado_p, valor_total_p, observacoes_p)
+                            )
+                            conn.commit()
+                            st.success("✅ Planilha vinculada!")
 
-                        if mes_ano_ref:
-                            try:
-                                partes   = mes_ano_ref.split("/")
-                                mes_r    = int(partes[0])
-                                ano_r    = int(partes[1])
-                                des_bool = desonerado_p == "Sim"
+                            if mes_ano_ref:
+                                try:
+                                    partes   = mes_ano_ref.split("/")
+                                    mes_r    = int(partes[0])
+                                    ano_r    = int(partes[1])
+                                    des_bool = desonerado_p == "Sim"
 
-                                with st.spinner("Buscando indice " + indice_ref + " " + mes_ano_ref + "..."):
-                                    if indice_ref == "SINAPI":
-                                        idx_valor, msg_idx = buscar_sinapi_ibge(ano_r, mes_r, "RO", des_bool)
-                                    elif indice_ref == "INCC":
-                                        idx_valor, _ = get_bcb(433)
-                                        msg_idx = "OK"
-                                    elif indice_ref == "IPCA":
-                                        idx_valor, _ = get_bcb(438)
-                                        msg_idx = "OK"
-                                    elif indice_ref == "IGP-M":
-                                        idx_valor, _ = get_bcb(189)
-                                        msg_idx = "OK"
+                                    with st.spinner("Buscando indice " + indice_ref + " " + mes_ano_ref + "..."):
+                                        if indice_ref == "SINAPI":
+                                            idx_valor, msg_idx = buscar_sinapi_ibge(ano_r, mes_r, "RO", des_bool)
+                                        elif indice_ref == "INCC":
+                                            idx_valor, _ = get_bcb(433)
+                                            msg_idx = "OK"
+                                        elif indice_ref == "IPCA":
+                                            idx_valor, _ = get_bcb(438)
+                                            msg_idx = "OK"
+                                        elif indice_ref == "IGP-M":
+                                            idx_valor, _ = get_bcb(189)
+                                            msg_idx = "OK"
+                                        else:
+                                            idx_valor = None
+                                            msg_idx   = "Indice nao automatizado ainda"
+
+                                    if idx_valor:
+                                        dt_base_nova = partes[1] + "-" + partes[0] + "-01"
+                                        conn.execute(
+                                            "UPDATE contratos SET data_estimado=?, dt_base=?, reajuste_base=? WHERE id=?",
+                                            (dt_base_nova, dt_base_nova, idx_valor, contrato_sel)
+                                        )
+                                        conn.commit()
+                                        st.success("✅ Contrato atualizado! Indice Io = " + str(idx_valor) + " | Data-base: " + mes_ano_ref)
+                                        st.balloons()
                                     else:
-                                        idx_valor = None
-                                        msg_idx   = "Indice nao automatizado ainda"
+                                        st.warning("Indice nao encontrado: " + msg_idx)
+                                        st.info("Va em Contratos e atualize o Indice Base Io manualmente.")
 
-                                if idx_valor:
-                                    dt_base_nova = partes[1] + "-" + partes[0] + "-01"
-                                    conn.execute(
-                                        "UPDATE contratos SET data_estimado=?, dt_base=?, reajuste_base=? WHERE id=?",
-                                        (dt_base_nova, dt_base_nova, idx_valor, contrato_sel)
-                                    )
-                                    conn.commit()
-                                    st.success("✅ Contrato atualizado! Indice Io = " + str(idx_valor) + " | Data-base: " + mes_ano_ref)
-                                    st.balloons()
-                                else:
-                                    st.warning("Planilha salva, mas indice nao encontrado: " + msg_idx)
-                                    st.info("Va em Contratos e atualize o Indice Base Io manualmente.")
-
-                            except Exception as e:
-                                st.error("Erro ao atualizar contrato: " + str(e))
-                        else:
-                            st.warning("Mes/ano nao identificado. Atualize o contrato manualmente.")
-
-                else:
-                    st.error("Nao foi possivel extrair texto do arquivo.")
+                                except Exception as e:
+                                    st.error("Erro ao atualizar contrato: " + str(e))
+                            else:
+                                st.warning("Mes/ano nao identificado. Atualize o contrato manualmente.")
+                    else:
+                        st.error("Nao foi possivel extrair texto do arquivo.")
     with tab2:
         st.subheader("Planilhas Cadastradas")
         df_p = pd.read_sql("""
