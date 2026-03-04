@@ -327,21 +327,25 @@ elif page == "📑 Contratos":
                         try:
                             client = get_groq()
                             prompt = (
-                                "Voce e um engenheiro civil especialista em orcamentos publicos brasileiros. "
-                                "Analise a planilha orcamentaria abaixo e extraia SOMENTE o JSON sem explicacoes: "
-                                "{\"indice_referencia\":\"\","
-                                "\"mes_ano_referencia\":\"MM/AAAA\","
-                                "\"desonerado\":\"Sim ou Nao\","
-                                "\"valor_total\":0.0,"
-                                "\"observacoes\":\"\"}"
-                                "\n\nREGRAS:"
-                                "\n- indice_referencia: tabela principal usada (SINAPI, SICRO, ORSE, etc.)"
-                                "\n- mes_ano_referencia: mes e ano da tabela principal, formato MM/AAAA"
-                                "\n- desonerado: Sim ou Nao"
-                                "\n- valor_total: valor total com BDI, float"
-                                "\n- observacoes: informacoes relevantes"
-                                "\n\nPLANILHA:\n" + st.session_state['plan_texto'][:4000]
-                            )
+    "Voce e um engenheiro civil especialista em orcamentos publicos brasileiros. "
+    "Analise a planilha orcamentaria abaixo e extraia SOMENTE o JSON sem explicacoes. "
+    "IMPORTANTE: Se houver mais de um indice (ex: SINAPI e SICRO), escolha o PRINCIPAL "
+    "(geralmente o de maior participacao no orcamento). "
+    "Se houver mais de uma data, use a data do indice PRINCIPAL escolhido. "
+    "Retorne SOMENTE este JSON:\n"
+    "{\"indice_referencia\":\"\","
+    "\"mes_ano_referencia\":\"MM/AAAA\","
+    "\"desonerado\":\"Sim ou Nao\","
+    "\"valor_total\":0.0,"
+    "\"observacoes\":\"informe todos os indices encontrados aqui\"}"
+    "\n\nREGRAS:"
+    "\n- indice_referencia: APENAS UM indice principal (SINAPI, SICRO, ORSE, etc.)"
+    "\n- mes_ano_referencia: mes e ano APENAS do indice principal, formato MM/AAAA"
+    "\n- desonerado: Sim ou Nao"
+    "\n- valor_total: valor total com BDI, float"
+    "\n- observacoes: liste TODOS os indices encontrados e suas datas"
+    "\n\nPLANILHA:\n" + st.session_state['plan_texto'][:4000]
+)
                             resp = client.chat.completions.create(
                                 model="llama-3.3-70b-versatile",
                                 messages=[{"role": "user", "content": prompt}],
