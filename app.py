@@ -570,7 +570,7 @@ elif page == "📑 Contratos":
                     except:
                         dt_salvar = str(date.today())
                     conn.execute(
-                        cur = conn.cursor()
+                        
                         "INSERT INTO contratos (numero, objeto, data_estimado, reajuste_base, dt_base, valor_total, valor_remanescente) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                         (numero, objeto, dt_salvar, ind_base, dt_salvar, val_total, val_rem)
                     )
