@@ -131,15 +131,33 @@ MESES_PT = {
 }
 
 ESTADOS_SINAPI = {
-    "RO":"Rondonia","AC":"Acre","AM":"Amazonas","RR":"Roraima",
-    "PA":"Para","AP":"Amapa","TO":"Tocantins","MA":"Maranhao",
-    "PI":"Piaui","CE":"Ceara","RN":"Rio Grande do Norte",
-    "PB":"Paraiba","PE":"Pernambuco","AL":"Alagoas","SE":"Sergipe",
-    "BA":"Bahia","MG":"Minas Gerais","ES":"Espirito Santo",
-    "RJ":"Rio de Janeiro","SP":"Sao Paulo","PR":"Parana",
-    "SC":"Santa Catarina","RS":"Rio Grande do Sul",
-    "MS":"Mato Grosso do Sul","MT":"Mato Grosso",
-    "GO":"Goias","DF":"Distrito Federal"
+    "RO": "Rondônia",
+    "AC": "Acre",
+    "AM": "Amazonas",
+    "RR": "Roraima",
+    "PA": "Pará",
+    "AP": "Amapá",
+    "TO": "Tocantins",
+    "MA": "Maranhão",
+    "PI": "Piauí",
+    "CE": "Ceará",
+    "RN": "Rio Grande do Norte",
+    "PB": "Paraíba",
+    "PE": "Pernambuco",
+    "AL": "Alagoas",
+    "SE": "Sergipe",
+    "BA": "Bahia",
+    "MG": "Minas Gerais",
+    "ES": "Espírito Santo",
+    "RJ": "Rio de Janeiro",
+    "SP": "São Paulo",
+    "PR": "Paraná",
+    "SC": "Santa Catarina",
+    "RS": "Rio Grande do Sul",
+    "MS": "Mato Grosso do Sul",
+    "MT": "Mato Grosso",
+    "GO": "Goiás",
+    "DF": "Distrito Federal"
 }
 
 @st.cache_data(ttl=86400)
@@ -152,34 +170,58 @@ def buscar_sinapi_ibge(ano, mes, estado, desonerado):
     ]
     try:
         resp = None
+        url_usada = None
         for url in urls:
             r = requests.get(url, timeout=15)
             if r.status_code == 200:
                 resp = r
+                url_usada = url
                 break
+
         if not resp:
-            return None, "PDF nao encontrado para " + mes_str + "/" + str(ano)
+            return None, "PDF não encontrado para " + mes_str + "/" + str(ano)
+
+        nome_estado = ESTADOS_SINAPI.get(estado, estado)
+
         with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
-            for page in pdf.pages:
+            for i, page in enumerate(pdf.pages):
                 texto = page.extract_text()
                 if not texto:
                     continue
-                if desonerado and "nao considerando a desonerac" in texto.lower():
+
+                # Filtra pagina correta pelo tipo de desoneracao
+                texto_lower = texto.lower()
+                tem_nao_desonerado = "não considerando a desoner" in texto_lower or "nao considerando a desoner" in texto_lower
+                tem_desonerado     = "considerando a desoner" in texto_lower
+
+                if desonerado and tem_nao_desonerado:
                     continue
-                if not desonerado and "considerando a desonerac" in texto.lower() and "nao considerando" not in texto.lower():
+                if not desonerado and tem_desonerado and not tem_nao_desonerado:
                     continue
-                nome_estado = ESTADOS_SINAPI.get(estado, estado)
+
+                # Busca linha do estado — usa \n real (nao escapado)
                 linhas = texto.split("\n")
                 for linha in linhas:
-                    if nome_estado.lower() in linha.lower() or estado in linha:
+                    linha_lower = linha.lower()
+                    # Busca pelo nome completo com acento e tambem sem acento como fallback
+                    nome_lower = nome_estado.lower()
+                    nome_sem_acento = (
+                        nome_lower
+                        .replace("ô", "o").replace("á", "a").replace("ã", "a")
+                        .replace("é", "e").replace("í", "i").replace("ú", "u")
+                        .replace("ó", "o").replace("â", "a").replace("ê", "e")
+                    )
+                    if nome_lower in linha_lower or nome_sem_acento in linha_lower or estado in linha:
                         nums = re.findall(r"\d+[.,]\d+", linha)
                         if len(nums) >= 2:
                             indice_str = nums[1].replace(".", "").replace(",", ".")
                             try:
-                                return float(indice_str), "OK"
+                                return float(indice_str), "URL: " + str(url_usada)
                             except:
                                 continue
-        return None, "Estado nao encontrado no PDF"
+
+        return None, "Estado '" + nome_estado + "' não encontrado no PDF (" + str(url_usada) + ")"
+
     except Exception as e:
         return None, "Erro: " + str(e)
 
