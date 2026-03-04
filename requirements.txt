@@ -1,7 +1,7 @@
 streamlit
 pandas
 plotly
-psycopg2-binary==2.9.9
+psycopg[binary]
 groq
 pdfplumber
 openpyxl
