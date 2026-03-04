@@ -551,7 +551,7 @@ elif page == "📋 Planilha Orcamentaria":
                     st.markdown("---")
                     st.subheader("Confirme e salve:")
 
-                   with st.form("salvar_planilha"):
+                    with st.form("salvar_planilha"):
                         col1, col2 = st.columns(2)
                         with col1:
                             indice_ref = st.selectbox(
